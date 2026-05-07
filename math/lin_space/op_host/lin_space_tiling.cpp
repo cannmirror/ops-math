@@ -133,7 +133,10 @@ inline static int64_t CalcAlignNumPerCore(const ge::DataType outputDtype, const 
     int32_t typeSize = ge::GetSizeByDataType(outputDtype);
     OP_CHECK_IF(
         (typeSize <= 0),
-        OP_LOGE(context->GetNodeName(), "Tiling4LinSpace typeSize is invalid %d, please check.", typeSize), return -1);
+        OP_LOGE_FOR_INVALID_DTYPE_WITH_REASON(
+            context->GetNodeName(), "output", Ops::Base::ToString(outputDtype).c_str(),
+            "The dtype size of output must be greater than 0"),
+        return -1);
     return BLOCK_SIZE / typeSize;
 }
 
@@ -151,7 +154,9 @@ inline static int64_t CalcMaxOutNum(const ge::DataType outDataType, const gert::
     int32_t outTypeSize = ge::GetSizeByDataType(calcDataType);
     OP_CHECK_IF(
         (outTypeSize <= 0),
-        OP_LOGE(context->GetNodeName(), "Tiling4LinSpace outTypeSize is invalid %d, please check.", outTypeSize),
+        OP_LOGE_FOR_INVALID_DTYPE_WITH_REASON(
+            context->GetNodeName(), "output", Ops::Base::ToString(calcDataType).c_str(),
+            "The dtype size of output must be greater than 0"),
         return -1);
     return OUT_SIZE / outTypeSize;
 }

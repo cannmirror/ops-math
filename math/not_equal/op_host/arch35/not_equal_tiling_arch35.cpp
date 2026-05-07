@@ -45,10 +45,9 @@ ge::graphStatus NotEqualTiling::DoOpTiling()
     OP_CHECK_NULL_WITH_CONTEXT(context_, input1Desc);
     ge::DataType input1DType = input1Desc->GetDataType();
     if (inputDType != input1DType) {
-        OP_LOGE(
-            context_->GetNodeName(), "dtype of input0[%s] != dtype of input1[%s].",
-            ge::TypeUtils::DataTypeToSerialString(inputDType).c_str(),
-            ge::TypeUtils::DataTypeToSerialString(input1DType).c_str());
+        std::string dtypeMsg = Ops::Base::ToString(inputDType) + " and " + Ops::Base::ToString(input1DType);
+        OP_LOGE_FOR_INVALID_DTYPES_WITH_REASON(
+            context_->GetNodeName(), "x1 and x2", dtypeMsg.c_str(), "The dtypes of x1 and x2 must be the same");
         return ge::GRAPH_FAILED;
     }
 
@@ -82,10 +81,9 @@ ge::graphStatus NotEqualTiling::DoOpTiling()
         ret = brcBaseTiling.DoTiling();
         tilingKey = GET_TPL_TILING_KEY(brcBaseTiling.GetSchMode());
     } else {
-        OP_LOGE(
-            context_->GetNodeName(),
-            "input dtype is only support uint64, int64, int32, float16, bf16, fp32, uint8, int8, bool, while got %s!",
-            ge::TypeUtils::DataTypeToSerialString(inputDType).c_str());
+        OP_LOGE_FOR_INVALID_DTYPE(
+            context_->GetNodeName(), "x1", Ops::Base::ToString(inputDType).c_str(),
+            "uint64, int64, int32, float16, bf16, fp32, uint8, int8 or bool");
         return ge::GRAPH_FAILED;
     }
 

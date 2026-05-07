@@ -48,30 +48,34 @@ ge::graphStatus RealDivTiling::DoOpTiling()
     OP_CHECK_NULL_WITH_CONTEXT(context_, input1Desc);
     ge::DataType input1DType = input1Desc->GetDataType();
     if (input0DType != input1DType) {
-        OP_LOGE(context_->GetNodeName(), "dtype of input0[%s] != dtype of input1[%s].",
-                ge::TypeUtils::DataTypeToSerialString(input0DType).c_str(),
-                ge::TypeUtils::DataTypeToSerialString(input1DType).c_str());
+        std::string dtypeMsg = Ops::Base::ToString(input0DType) + " and " +
+                               Ops::Base::ToString(input1DType);
+        OP_LOGE_FOR_INVALID_DTYPES_WITH_REASON(
+            context_->GetNodeName(), "x1 and x2", dtypeMsg.c_str(), "The dtypes of x1 and x2 must be the same");
         return ge::GRAPH_FAILED;
     }
     auto outputDesc = context_->GetOutputDesc(0);
     OP_CHECK_NULL_WITH_CONTEXT(context_, outputDesc);
     ge::DataType outputDType = outputDesc->GetDataType();
     if ((input0DType == ge::DT_INT32) && (outputDType != ge::DT_FLOAT && outputDType != ge::DT_INT32)) {
-        OP_LOGE(context_->GetNodeName(), "when input dtype is int32, output dtype[%s] only supports int32 or fp32.",
-                ge::TypeUtils::DataTypeToSerialString(outputDType).c_str());
+        OP_LOGE_FOR_INVALID_DTYPE_WITH_REASON(
+            context_->GetNodeName(), "y", Ops::Base::ToString(outputDType).c_str(),
+            "The dtype of y must be int32 or fp32 when the dtype of x1 is int32");
         return ge::GRAPH_FAILED;
     }
 
     if ((input0DType == ge::DT_BOOL) && (outputDType != ge::DT_FLOAT)) {
-        OP_LOGE(context_->GetNodeName(), "when input dtype is bool, output dtype[%s] only supports fp32.",
-                ge::TypeUtils::DataTypeToSerialString(outputDType).c_str());
+        OP_LOGE_FOR_INVALID_DTYPE_WITH_REASON(
+            context_->GetNodeName(), "y", Ops::Base::ToString(outputDType).c_str(),
+            "The dtype of y must be fp32 when the dtype of x1 is bool");
         return ge::GRAPH_FAILED;
     }
 
     if (input0DType != ge::DT_INT32 && input0DType != ge::DT_BOOL && input0DType != outputDType) {
-        OP_LOGE(context_->GetNodeName(), "input dtype[%s] != output dtype[%s].",
-                ge::TypeUtils::DataTypeToSerialString(input0DType).c_str(),
-                ge::TypeUtils::DataTypeToSerialString(outputDType).c_str());
+        std::string dtypeMsg = Ops::Base::ToString(input0DType) + " and " +
+                               Ops::Base::ToString(outputDType);
+        OP_LOGE_FOR_INVALID_DTYPES_WITH_REASON(
+            context_->GetNodeName(), "x1 and y", dtypeMsg.c_str(), "The dtypes of x1 and y must be the same");
         return ge::GRAPH_FAILED;
     }
 
@@ -101,8 +105,9 @@ ge::graphStatus RealDivTiling::DoOpTiling()
         ret = brcBaseTiling.DoTiling();
         tilingKey = GET_TPL_TILING_KEY(brcBaseTiling.GetSchMode());
     } else {
-        OP_LOGE(context_->GetNodeName(), "input dtype is only support fp16, bf16, fp32, int32, bool, but got %s!",
-                ge::TypeUtils::DataTypeToSerialString(input0DType).c_str());
+        OP_LOGE_FOR_INVALID_DTYPE(
+            context_->GetNodeName(), "x1", Ops::Base::ToString(input0DType).c_str(),
+            "fp16, bf16, fp32, int32 or bool");
         return ge::GRAPH_FAILED;
     }
 

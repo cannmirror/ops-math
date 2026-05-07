@@ -190,10 +190,13 @@ ge::graphStatus MulTiling::DoOpTiling() {
     if (it != DTYPE_MAP.end()) {
         return it->second(this);
     }
-    OP_LOGE("MulTiling", "Dtypes are not support. Input0DType is: %s, input1DType is: %s, outputDtype is: %s.",
-            ge::TypeUtils::DataTypeToSerialString(input0DType).c_str(),
-            ge::TypeUtils::DataTypeToSerialString(input1DType).c_str(),
-            ge::TypeUtils::DataTypeToSerialString(outputDType).c_str());
+    std::string dtypeMsg = Ops::Base::ToString(input0DType) + ", " + Ops::Base::ToString(input1DType) + " and " +
+                           Ops::Base::ToString(outputDType);
+    OP_LOGE_FOR_INVALID_DTYPES_WITH_REASON(
+        context_->GetNodeName(), "x1, x2 and y", dtypeMsg.c_str(),
+        "The dtypes of x1, x2 and y must be within the range (all int8, all uint8, all bool, all fp16, all bf16, "
+        "all float, all int32, all int64, all int16, all double, all complex32, all complex64, (bf16, float, float), "
+        "(float, bf16, float), (fp16, float, float) or (float, fp16, float))");
     return ge::GRAPH_FAILED;
 }
 

@@ -179,9 +179,8 @@ ge::graphStatus TanhGradTiling::GetShapeAttrsInfo()
             context_->GetNodeName(), "y, dy and z",
             (Ops::Base::ToString(yDtype) + ", " + Ops::Base::ToString(dyDtype) + " and " + Ops::Base::ToString(zDtype))
                 .c_str(),
-            "The dtypes of y, dy and z are not within the supported (all fp16, all float, all bf16, "
-            "(fp16, bf16, float), (fp16, float, float), (bf16, float, float), (bf16, fp16, float), (float, fp16, "
-            "float) or (float, bf16, float)) combination range"),
+            "The dtypes of y, dy and z must be the range (all fp16, all float, all bf16, (fp16, bf16, float), (fp16, "
+            "float, float), (bf16, float, float), (bf16, fp16, float), (float, fp16, float) or (float, bf16, float))"),
         return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
 }

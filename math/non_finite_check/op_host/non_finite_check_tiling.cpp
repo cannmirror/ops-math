@@ -91,7 +91,10 @@ ge::graphStatus NonFiniteCheckTiling::Init()
             dataType = tempDtype;
             dataTypeSize = ge::GetSizeByDataType(dataType);
             OP_CHECK_IF(
-                dataTypeSize <= 0, OP_LOGE(tilingContext, "dataTypeSize[%d] is invalid.", dataTypeSize),
+                dataTypeSize <= 0,
+                OP_LOGE_FOR_INVALID_DTYPE_WITH_REASON(
+                    tilingContext->GetNodeName(), "tesnor_list 0th tensor", Ops::Base::ToString(dataType).c_str(),
+                    "The dtype size of tesnor_list 0th tensor must be greater than 0"),
                 return ge::GRAPH_FAILED);
             elementsPerBlock = BYTE_BLOCK / dataTypeSize;
         } else if (tempDtype != dataType) {

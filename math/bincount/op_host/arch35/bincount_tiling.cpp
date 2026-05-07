@@ -156,8 +156,8 @@ ge::graphStatus BincountTiling::CheckInputParams()
     OP_LOGI(context_->GetNodeName(), "sizeContent is %ld", sizeContent);
     OP_CHECK_IF(
         sizeContent < 0,
-        OP_LOGE_FOR_INVALID_VALUE_WITH_REASON(
-            context_->GetNodeName(), "size", std::to_string(sizeContent).c_str(), "The value of size cannot be negtive"),
+        OP_LOGE_FOR_INVALID_VALUE(
+            context_->GetNodeName(), "size", std::to_string(sizeContent).c_str(), "greater than or equal to 0"),
         return ge::GRAPH_FAILED);
     inputSize_ = sizeContent;
 
