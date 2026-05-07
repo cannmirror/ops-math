@@ -1582,7 +1582,7 @@
     <td>√</td>
     <td>×</td>
     <td>√</td>
-    <td>AI Core</td>
+    <td>AI Core/AI CPU</td>
     <td>根据条件选取self或other中元素并返回（支持广播）。</td>
   </tr>
   <tr>
