@@ -20,8 +20,6 @@
 #include "exe_graph/runtime/shape.h"
 #include "op_host/tiling_base.h"
 #include "drop_out_do_mask_v3_d_tiling_arch35.h"
-#include "util/fp16.h"
-#include "util/bfloat16.h"
 
 using namespace ge;
 
@@ -84,38 +82,9 @@ ge::graphStatus DropOutDoMaskV3DTiling::UniqueProcess()
 {
     auto* attrs = context_->GetAttrs();
     OP_CHECK_NULL_WITH_CONTEXT(context_, attrs);
-    const float* attrDtype = attrs->GetAttrPointer<float>(KEEP_PROB_IDX);
-    OP_CHECK_NULL_WITH_CONTEXT(context_, attrDtype);
-    ge::DataType keepDtype = static_cast<ge::DataType>(*attrDtype);
-    float keepProbNum = 0.0f;
-    switch (keepDtype) {
-        case DT_FLOAT: {
-            const auto* keepProbAttr = attrs->GetAttrPointer<float>(KEEP_PROB_IDX);
-            keepProbNum = *keepProbAttr;
-            tilingData_.keepProb = keepProbNum;
-            break;
-        }
-        case DT_FLOAT16: {
-            const auto* keepProbAttr = attrs->GetAttrPointer<Ops::Base::fp16_t>(KEEP_PROB_IDX);
-            keepProbNum = static_cast<float>(*keepProbAttr);
-            tilingData_.keepProb = keepProbNum;
-            break;
-        }
-        case DT_BF16: {
-            const auto* keepProbAttr = attrs->GetAttrPointer<Ops::Base::bfloat16>(KEEP_PROB_IDX);
-            keepProbNum = static_cast<float>(*keepProbAttr);
-            tilingData_.keepProb = keepProbNum;
-            break;
-        }
-        default: {
-            OP_LOGE(context_, "Unsupported data type: %d", static_cast<int>(keepDtype));
-            return ge::GRAPH_FAILED;
-        }
-    }
-    if (keepProbNum > 1 || keepProbNum < 0) {
-        OP_LOGE(context_, "keepProbNum out of range: %d", static_cast<int>(keepProbNum));
-        return ge::GRAPH_FAILED;
-    }
+    const float* keepProbAttr = attrs->GetAttrPointer<float>(KEEP_PROB_IDX);
+    OP_CHECK_NULL_WITH_CONTEXT(context_, keepProbAttr);
+    tilingData_.keepProb = *keepProbAttr;
     return ge::GRAPH_SUCCESS;
 }
 

@@ -26,7 +26,7 @@ namespace ge {
 *  output = select(mask == 1, scale_x, 0)  \n
 
 * @par Inputs:
-* Three inputs, including:
+* Two inputs, including:
 * @li x: A mutable Tensor. A ND tensor. Support 1D ~ 8D. Must be one of the following types:
 *     float16, float32, bfloat16.
 * @li mask: A mutable Tensor. A ND tensor. Must met all of the following rules:
@@ -34,9 +34,9 @@ namespace ge {
 *     dtype of mask should be uint8 or bool.
 *     value of shape should met the following algorithm:
 *     value = value = ((size(x) + 127) / 128) * 128 / 8.
-* @li keep_prob: A mutable Tensor.Must met all of the following rules:
-*     shape of "keep_prob" should be (1,).
-*     Has the same type as "x" . \n
+
+* @par Attributes:
+* @li keep_prob: A required Float attribute. Must satisfy 0 <= keep_prob <= 1.
 
 * @par Outputs:
 * y: A mutable Tensor. Has the same type, shape and format as "x".

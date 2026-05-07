@@ -13,14 +13,14 @@
 
 ## 功能说明
 
-- 算子功能：训练过程中，按照概率keep_prob随机将输入中的元素置零，并将输出按照1/(1-keep_prob)的比例放大。若mask对应比特位为1，则输入中相应的元素放大。若mask中比特位为0，则gradOutput相应的元素置零。特别地，若keep_prob为0，则不改变gradOutput的元素；若keep_prob为1，则将所有元素置为0。
+- 算子功能：训练过程中，按照概率keep_prob随机保留输入中的元素，并将输出按照1/keep_prob的比例放大。若mask对应比特位为1，则输入中相应的元素放大。若mask中比特位为0，则gradOutput相应的元素置零。特别地，若keep_prob为0，则将所有元素置为0；若keep_prob为1，则不改变gradOutput的元素。
 
 - 计算公式：
 
 $$
 gradOutput_i=\begin{cases}
-0,&\text { with probability }keep\_prob \\
-\frac{1}{1-keep\_prob}self_i, &\text { with probability }1-keep\_prob
+0,&mask_i=0 \\
+\frac{1}{keep\_prob}self_i, &mask_i=1
 \end{cases}
 $$
 
@@ -59,7 +59,7 @@ $$
     <tr>
       <td>keep_prob</td>
       <td>输入</td>
-      <td>用于计算输出数据缩放比例的概率值。</td>
+      <td>用于计算输出数据缩放比例的概率值，shape需要为(1)。</td>
       <td>FLOAT、FLOAT16、BFLOAT16</td>
       <td>ND</td>
     </tr>
@@ -82,4 +82,4 @@ $$
 
 | 调用方式  | 样例代码                                                     | 说明                                                         |
 | --------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| 图模式调用 | [test_geir_drop_out_do_mask_v3](./examples/test_geir_drop_out_do_mask_v3.cpp)   | 通过[算子IR](./op_graph/drop_out_do_mask_v3_proto.h)构图方式调用TruncatedNormalV2算子。 |
+| 图模式调用 | [test_geir_drop_out_do_mask_v3](./examples/test_geir_drop_out_do_mask_v3.cpp)   | 通过[算子IR](./op_graph/drop_out_do_mask_v3_proto.h)构图方式调用DropOutDoMaskV3算子。 |
