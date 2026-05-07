@@ -106,7 +106,7 @@ aclnnStatus aclnnReplicationPad2d(
       <td>输出shape中，除被填充的最后一维外，需要与self一致，out最后一维度的数值等于self最后一维度的数值加padding前两个值。</td>
       <td>与self一致</td>
       <td>ND</td>
-      <td>3-4</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>

@@ -77,10 +77,10 @@ aclnnStatus aclnnReflectionPad1dBackward(
       <td>gradOutput（aclTensor*）</td>
       <td>输入</td>
       <td>输入的梯度</td>
-      <td>-</td>
+      <td>shape支持2-3维且维度需要与self和gradInput一致。</td>
       <td>与self保持一致</td>
       <td>ND</td>
-      <td>2-3</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>
@@ -107,7 +107,7 @@ aclnnStatus aclnnReflectionPad1dBackward(
       <td>gradInput（aclTensor*）</td>
       <td>输出</td>
       <td>计算得到的self的梯度</td>
-      <td>-</td>
+      <td>shape支持2-3维且维度需要与gradOutput和gradInput一致，shape与self一致。</td>
       <td>与self保持一致</td>
       <td>ND</td>
       <td>与self保持一致</td>

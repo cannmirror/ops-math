@@ -80,7 +80,7 @@ aclnnStatus aclnnCircularPad2dBackward(
       <td>shape维度需要与self和gradInput一致，shape需要与circular_pad2d正向传播的output一致。</td>
       <td>shape需要与circular_pad2d正向传播的output一致。</td>
       <td>ND</td>
-      <td>3-4</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>
@@ -107,7 +107,7 @@ aclnnStatus aclnnCircularPad2dBackward(
       <td>gradInput（aclTensor*）</td>
       <td>输出</td>
       <td>反向时输出的梯度数据。</td>
-      <td>-</td>
+      <td>shape维度需要与gradOutput和self一致，shape与self一致。</td>
       <td>与self一致</td>
       <td>ND</td>
       <td>shape与self保持一致</td>

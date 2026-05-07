@@ -105,7 +105,7 @@ aclnnStatus aclnnCircularPad2d(
       <td><ul><li>out倒数第二维度的大小等于self倒数第二维度的大小加padding后两个数值。</li><li>out最后一维度的大小等于self最后一维度的大小加padding前两个数值。</li></ul></td>
       <td>FLOAT16、BFLOAT16、FLOAT32、INT8、INT32</td>
       <td>ND</td>
-      <td>-</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>

@@ -86,7 +86,7 @@ aclnnStatus aclnnReplicationPad1d(
       <td>输入</td>
       <td>输入中需要填充的大小。</td>
       <td>长度为2，两个数值依次代表左右两边需要填充的值。</td>
-      <td>-</td>
+      <td>INT64</td>
       <td>-</td>
       <td>-</td>
       <td>-</td>
@@ -98,7 +98,7 @@ aclnnStatus aclnnReplicationPad1d(
       <td>输出shape中，除被填充的最后一维外，需要与self一致，out最后一维度的数值等于self最后一维度的数值加padding前两个值。</td>
       <td>与self一致</td>
       <td>ND</td>
-      <td>-</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>

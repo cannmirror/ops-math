@@ -72,7 +72,7 @@ aclnnStatus aclnnReflectionPad3dBackward(
       <td>shape需要与reflection_pad3d正向传播的output一致。</td>
       <td>与self保持一致</td>
       <td>ND</td>
-      <td>4/5</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>
@@ -102,7 +102,7 @@ aclnnStatus aclnnReflectionPad3dBackward(
       <td>-</td>
       <td>与self保持一致。</td>
       <td>ND</td>
-      <td>4/5</td>
+      <td>与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>

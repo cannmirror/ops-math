@@ -80,7 +80,7 @@ aclnnStatus aclnnReplicationPad1dBackward(
       <td>维度需要与self和gradInput一致，shape需要与replication_pad1d正向传播的output一致。</td>
       <td>与self保持一致</td>
       <td>ND</td>
-      <td>2-3</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>

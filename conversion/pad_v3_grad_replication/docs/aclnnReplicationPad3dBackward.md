@@ -72,7 +72,7 @@ aclnnStatus aclnnReplicationPad3dBackward(
       <td>维度支持四维或五维且与self和gradInput一致，shape、dtype需要与正向传播aclnnReplicationPad3d的输出out一致。</td>
       <td>FLOAT16、FLOAT32、BFLOAT16、DOUBLE、COMPLEX64、COMPLEX128。</td>
       <td>ND</td>
-      <td>4-5</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>

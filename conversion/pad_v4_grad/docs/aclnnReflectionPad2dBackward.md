@@ -80,7 +80,7 @@ aclnnStatus aclnnReflectionPad2dBackward(
       <td>shape需要与reflection_pad2d正向传播的output一致</td>
       <td>与self保持一致</td>
       <td>ND</td>
-      <td>3-4</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>

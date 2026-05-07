@@ -115,7 +115,7 @@ aclnnStatus aclnnCircularPad3d(
       <td><ul><li>out倒数第三维度的大小等于self倒数第三维度的大小加padding后两个值。</li><li>out倒数第二维度的大小等于self倒数第二维度的大小加padding中间两个值。</li><li>out最后一维度的大小等于self最后一维度的大小加padding前两个值。</li></ul></td>
       <td>FLOAT16、BFLOAT16、FLOAT32、INT8、INT32</td>
       <td>ND</td>
-      <td>4-5</td>
+      <td>维度与self保持一致</td>
       <td>√</td>
     </tr>
     <tr>
