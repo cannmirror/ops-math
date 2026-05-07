@@ -121,10 +121,10 @@ aclnnStatus aclnnDropoutGenMaskV2(
       <td class="tg-0pky">out（aclTensor*）</td>
       <td class="tg-0pky">输出</td>
       <td class="tg-0pky">输出的tensor。bit类型并使用UINT8类型存储的mask数据。</td>
-      <td class="tg-0pky">-</td>
+      <td class="tg-0pky">shape需要为(align(input的元素个数,128)/8)。</td>
       <td class="tg-0pky">UINT8</td>
       <td class="tg-0pky">ND</td>
-      <td class="tg-0pky">shape需要为(align(input的元素个数,128)/8)。</td>
+      <td class="tg-0pky">1</td>
       <td class="tg-0pky">√</td>
     </tr>
     <tr>
@@ -311,11 +311,8 @@ int main() {
   // 2. 构造输入与输出，需要根据API的接口自定义构造
   std::vector<int64_t> selfShape = {4, 2};
   std::vector<int64_t> outShape = {16};
-  void* selfDeviceAddr = nullptr;
   void* outDeviceAddr = nullptr;
-  aclTensor* self = nullptr;
   aclTensor* out = nullptr;
-  std::vector<float> selfHostData = {0, 1, 2, 3, 4, 5, 6, 7};
   std::vector<uint8_t> outHostData(16, 0);
 
   double p = 0.5;
@@ -324,9 +321,6 @@ int main() {
   aclDataType probDataType = aclDataType::ACL_FLOAT;
 
   aclIntArray* shapeArray = aclCreateIntArray(selfShape.data(), 2);
-  // 创建self aclTensor
-  ret = CreateAclTensor(selfHostData, selfShape, &selfDeviceAddr, aclDataType::ACL_FLOAT, &self);
-  CHECK_RET(ret == ACL_SUCCESS, return ret);
   // 创建out aclTensor
   ret = CreateAclTensor(outHostData, outShape, &outDeviceAddr, aclDataType::ACL_UINT8, &out);
   CHECK_RET(ret == ACL_SUCCESS, return ret);
@@ -354,20 +348,17 @@ int main() {
   CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", ret); return ret);
   // 5. 获取输出的值，将device侧内存上的结果拷贝至host侧，需要根据具体API的接口定义修改
   auto size = GetShapeSize(outShape);
-  std::vector<float> resultData(size, 0);
-  ret = aclrtMemcpy(resultData.data(), resultData.size() * sizeof(resultData[0]), outDeviceAddr,
-                    size * sizeof(resultData[0]), ACL_MEMCPY_DEVICE_TO_HOST);
+  std::vector<uint8_t> resultData(size, 0);
+  ret = aclrtMemcpy(resultData.data(), size, outDeviceAddr, size, ACL_MEMCPY_DEVICE_TO_HOST);
   CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("copy result from device to host failed. ERROR: %d\n", ret); return ret);
   for (int64_t i = 0; i < size; i++) {
-    LOG_PRINT("result[%ld] is: %f\n", i, resultData[i]);
+    LOG_PRINT("result[%ld] is: %u\n", i, resultData[i]);
   }
 
   // 6. 释放aclTensor和aclScalar，需要根据具体API的接口定义修改
-  aclDestroyTensor(self);
   aclDestroyTensor(out);
 
   // 7. 释放Device资源，需要根据具体API的接口定义修改
-  aclrtFree(selfDeviceAddr);
   aclrtFree(outDeviceAddr);
   if (workspaceSize > 0) {
     aclrtFree(workspaceAddr);
