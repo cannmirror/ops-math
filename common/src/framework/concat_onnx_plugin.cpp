@@ -10,6 +10,7 @@
 
 #include "onnx_common.h"
 #include "op_math_proto_extend.h"
+#include "conversion/identity/op_graph/identity_proto.h"
 #include "conversion/concat_d/op_graph/concat_d_proto.h"
 
 using namespace std;

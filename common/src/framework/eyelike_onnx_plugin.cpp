@@ -14,6 +14,7 @@
 #include "math/cast/op_graph/cast_proto.h"
 #include "conversion/split/op_graph/split_proto.h"
 #include "conversion/fill/op_graph/fill_proto.h"
+#include "math/shape/op_graph/shape_proto.h"
 
 using namespace std;
 using namespace ge;

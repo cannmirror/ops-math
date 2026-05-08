@@ -39,24 +39,6 @@ REG_OP(ExpandDims)
     .OP_END_FACTORY_REG(ExpandDims)
 
 /**
-*@brief Return a tensor with the same shape and contents as input. \n
-
-*@par Inputs:
-*x: A tensor. Must be one of the following types: float32、float16、int8、
-int16、uint16、uint8、int32、int64、uint32、uint64、bool、double、string、bfloat16. \n
-
-*@par Outputs:
-*y: A tensor with the same shape、data type and contents as input. \n
-
-*@par Third-party framework compatibility
-*Compatible with the TensorFlow operator Identity.
-*/
-REG_OP(Identity)
-    .INPUT(x, TensorType::ALL())
-    .OUTPUT(y, TensorType::ALL())
-    .OP_END_FACTORY_REG(Identity)
-
-/**
 * @brief Draws binary random numbers (0 or 1) from a Bernoulli distribution.The input tensor
 * should be a tensor containing probabilities p (a value in the range [0, 1]) to be used for
 * drawing the binary random number, where an output of 1 is produced with ptobability p and
@@ -176,28 +158,6 @@ REG_OP(OneHotD)
     .REQUIRED_ATTR(depth, Int)
     .ATTR(axis, Int, -1)
     .OP_END_FACTORY_REG(OneHotD)
-
-/**
-*@brief Returns the shape of a tensor. \n
-
-*@par Inputs:
-*x: A tensor. Must be one of the following types: float32、float16、int8、
-int16、uint16、uint8、int32、int64、uint32、uint64、bool、double、string、bfloat16. \n
-
-*@par Attributes:
-*dtype: An optional int32 or int64. The output data type. Defaults to int32. \n
-
-*@par Outputs:
-*y: A tensor. The shape of the input tensor. \n
-
-*@par Third-party framework compatibility
-*Compatible with the TensorFlow operator Size.
-*/
-REG_OP(Shape)
-    .INPUT(x, TensorType::ALL())
-    .OUTPUT(y, TensorType({DT_INT32, DT_INT64}))
-    .ATTR(dtype, Int, DT_INT32)
-    .OP_END_FACTORY_REG(Shape)
 
 /**
 * @brief Returns a batched diagonal tensor with given batched diagonal values .

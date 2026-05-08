@@ -13,6 +13,7 @@
 #include "math/mul/op_graph/mul_proto.h"
 #include "math/add/op_graph/add_proto.h"
 #include "math/cast/op_graph/cast_proto.h"
+#include "math/shape/op_graph/shape_proto.h"
 
 using namespace ge;
 namespace domi {

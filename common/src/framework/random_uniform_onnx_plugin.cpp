@@ -11,6 +11,7 @@
 #include "onnx_common.h"
 #include "op_math_proto_extend.h"
 #include "math/muls/op_graph/muls_proto.h"
+#include "math/shape/op_graph/shape_proto.h"
 
 using namespace ge;
 namespace domi {

@@ -14,6 +14,7 @@
 #include "math/add/op_graph/add_proto.h"
 #include "math/mod/op_graph/mod_proto.h"
 #include "math/one_hot/op_graph/one_hot_proto.h"
+#include "conversion/identity/op_graph/identity_proto.h"
 #include "conversion/split/op_graph/split_proto.h"
 
 using namespace std;

@@ -11,6 +11,7 @@
 #include "onnx_common.h"
 #include "stub_ops.h"
 #include "op_math_proto_extend.h"
+#include "conversion/identity/op_graph/identity_proto.h"
 #include "math/minimum/op_graph/minimum_proto.h"
 
 using namespace ge;
