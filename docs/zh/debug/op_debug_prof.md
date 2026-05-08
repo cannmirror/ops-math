@@ -187,7 +187,7 @@
       之后进入算子可执行文件所在目录，执行如下命令：
 
       ```bash
-      msprof op simulator --output=$PWD/pipeline_auto --kernel-name "AddExample" ./test_aclnn_add_example
+      msprof op simulator --output=$PWD/pipeline_auto --kernel-name="AddExample" ./test_aclnn_add_example
       ```
 
       采集结果在本项目`$PWD/pipeline_auto/OPPROF_**`目录中。

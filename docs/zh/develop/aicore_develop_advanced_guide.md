@@ -828,7 +828,7 @@ static ge::graphStatus TilingFunc(gert::TilingContext *context)
     uint32_t totalLength = context->GetInputShape(0)->GetOriginShape().GetShapeSize();
     ge::DataType dtype_x = context->GetInputDesc(0)->GetDataType();
     ge::DataType dtype_y = context->GetInputDesc(1)->GetDataType();
-    ge::DataType dtype_z = context->GetOutputDesc(1)->GetDataType();
+    ge::DataType dtype_z = context->GetOutputDesc(0)->GetDataType();
     uint32_t D_T_X = static_cast<int>(dtype_x), D_T_Y = static_cast<int>(dtype_y), D_T_Z = static_cast<int>(dtype_z), TILE_NUM = 1, IS_SPLIT = 0;
     if(totalLength< MIN_LENGTH_FOR_SPLIT){
         IS_SPLIT = 0;
