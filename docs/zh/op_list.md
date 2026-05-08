@@ -467,6 +467,16 @@
   </tr>
   <tr>
     <td>conversion</td>
+    <td><a href="../../conversion/concat_dv2/README.md">concat_dv2</a></td>
+    <td>√</td>
+    <td>√</td>
+    <td>×</td>
+    <td>×</td>
+    <td>AI Core</td>
+    <td>将tensors中所有tensor按照维度concat_dim进行级联，除了dim对应的维度以外的维度必须一致。</td>
+  </tr>
+  <tr>
+    <td>conversion</td>
     <td><a href="../../conversion/concat_v2/README.md">concat_v2</a></td>
     <td>√</td>
     <td>√</td>
