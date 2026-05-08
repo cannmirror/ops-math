@@ -180,7 +180,7 @@ static aclnnStatus CommonPad3dBackward(
         if (self->GetViewShape().GetDimNum() == 4) {
             OP_LOGE(
                 ACLNN_ERR_PARAM_INVALID,
-                "Expected 4D or 5D tensor with possibly 0 batch size and other non-zero dimentions for input.");
+                "Expected 4D tensor can not be empty for input.");
             return ACLNN_ERR_PARAM_INVALID;
         }
         // 5 is dim number
@@ -191,7 +191,7 @@ static aclnnStatus CommonPad3dBackward(
                 self->GetViewShape().GetDim(3) == 0 || self->GetViewShape().GetDim(4) == 0) {
                 OP_LOGE(
                     ACLNN_ERR_PARAM_INVALID,
-                    "Expected 4D or 5D tensor with possibly 0 batch size and other non-zero dimentions for input.");
+                    "Expected 5D tensor with possibly 0 batch size and other non-zero dimentions for input.");
                 return ACLNN_ERR_PARAM_INVALID;
             }
         }
