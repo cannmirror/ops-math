@@ -19,6 +19,10 @@
 #include "kernel_operator.h"
 #include "bincount_simt_base.h"
 #include "bincount_tiling_data.h"
+#include "simt_api/asc_simt.h"
+#include "simt_api/device_atomic_functions.h"
+#include "simt_api/asc_fp16.h"
+#include "simt_api/asc_bf16.h"
 
 namespace BincountSimt {
 using namespace AscendC;
@@ -28,10 +32,10 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtComputeLoop(
     __gm__ int32_t* arrayGmAddr, __ubuf__ WEIGHT_TYPE* yLocalAddr, const int64_t arrayAicoreOffset,
     const int64_t arrayDataLength, const int64_t ubLoop, const int64_t availableUbSize)
 {
-    // Simt::GetThreadIdx() is commonly used as an index for data, use different threads to process data with gm at
+    // threadIdx.x is commonly used as an index for data, use different threads to process data with gm at
     // different addresses Due to this aicore has 'arrayDataLength' number, loop calculate the count of array value.
-    for (int64_t index = static_cast<int64_t>(Simt::GetThreadIdx()); index < arrayDataLength;
-         index += static_cast<int64_t>(Simt::GetThreadNum<0>())) {
+    for (int64_t index = static_cast<int64_t>(threadIdx.x); index < arrayDataLength;
+         index += static_cast<int64_t>(blockDim.x)) {
         // The value of array.
         int64_t arrayValue = static_cast<int64_t>(arrayGmAddr[arrayAicoreOffset + index]);
         // judge index in current Ub.
@@ -40,7 +44,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtComputeLoop(
         if (arrayValue >= currentLoopMinAddr && arrayValue < currentLoopMaxAddr) {
             // calculate the count of array value by accumulation in ub.
             int64_t arrayOffset = arrayValue - currentLoopMinAddr;
-            Simt::AtomicAdd(yLocalAddr + arrayOffset, static_cast<WEIGHT_TYPE>(WEIGHT_ONE));
+            asc_atomic_add(yLocalAddr + arrayOffset, static_cast<WEIGHT_TYPE>(WEIGHT_ONE));
         }
     }
 }
@@ -50,10 +54,10 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtComputeWithWei
     __gm__ int32_t* arrayGmAddr, __gm__ WEIGHT_TYPE* weightGmAddr, __ubuf__ WEIGHT_TYPE* yLocalAddr,
     const int64_t arrayAicoreOffset, const int64_t arrayDataLength, const int64_t ubLoop, const int64_t availableUbSize)
 {
-    // Simt::GetThreadIdx() is commonly used as an index for data, use different threads to process data with gm at
+    // threadIdx.x is commonly used as an index for data, use different threads to process data with gm at
     // different addresses Due to this aicore has 'arrayDataLength' number, loop calculate the weight of array value.
-    for (int64_t index = static_cast<int64_t>(Simt::GetThreadIdx()); index < arrayDataLength;
-         index += static_cast<int64_t>(Simt::GetThreadNum<0>())) {
+    for (int64_t index = static_cast<int64_t>(threadIdx.x); index < arrayDataLength;
+         index += static_cast<int64_t>(blockDim.x)) {
         // The value of array.
         int64_t arrayValue = static_cast<int64_t>(arrayGmAddr[arrayAicoreOffset + index]);
         // judge index in current Ub.
@@ -62,7 +66,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtComputeWithWei
         if (arrayValue >= currentLoopMinAddr && arrayValue < currentLoopMaxAddr) {
             // Calculate the weight of array value by accumulation in ub.
             int64_t arrayOffset = arrayValue - currentLoopMinAddr;
-            Simt::AtomicAdd(yLocalAddr + arrayValue, weightGmAddr[arrayAicoreOffset + index]);
+            asc_atomic_add(yLocalAddr + arrayValue, weightGmAddr[arrayAicoreOffset + index]);
         }
     }
 }
@@ -159,13 +163,13 @@ __aicore__ inline void BincountSimtNotFullLoadUb<WEIGHT_TYPE>::Compute()
         __ubuf__ WEIGHT_TYPE* binsLocalAddr = (__ubuf__ WEIGHT_TYPE*)binsLocal_.GetPhyAddr();
         // calculation of bincount by AtomicAdd in simt.
         if (this->isWeightEmpty_) {
-            Simt::VF_CALL<UbSimtComputeLoop<WEIGHT_TYPE>>(
-                Simt::Dim3{THREAD_NUM}, arrayGmAddr, binsLocalAddr, arrayHeadIndex, arrayDataLength, index,
+            asc_vf_call<UbSimtComputeLoop<WEIGHT_TYPE>>(
+                dim3{THREAD_NUM}, arrayGmAddr, binsLocalAddr, arrayHeadIndex, arrayDataLength, index,
                 this->availableUbSize_);
         } else {
             __gm__ WEIGHT_TYPE* weightsGmAddr = (__gm__ WEIGHT_TYPE*)this->weightsGm_.GetPhyAddr();
-            Simt::VF_CALL<UbSimtComputeWithWeightLoop<WEIGHT_TYPE>>(
-                Simt::Dim3{THREAD_NUM}, arrayGmAddr, weightsGmAddr, binsLocalAddr, arrayHeadIndex, arrayDataLength,
+            asc_vf_call<UbSimtComputeWithWeightLoop<WEIGHT_TYPE>>(
+                dim3{THREAD_NUM}, arrayGmAddr, weightsGmAddr, binsLocalAddr, arrayHeadIndex, arrayDataLength,
                 index, this->availableUbSize_);
         }
 

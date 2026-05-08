@@ -17,6 +17,10 @@
 #define BINCOUNT_SIMT_NOT_FULL_LOAD_GM_H
 
 #include "bincount_tiling_data.h"
+#include "simt_api/asc_simt.h"
+#include "simt_api/device_atomic_functions.h"
+#include "simt_api/asc_fp16.h"
+#include "simt_api/asc_bf16.h"
 
 namespace BincountSimt {
 using namespace AscendC;
@@ -27,12 +31,12 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void GmSimtCompute(
     __gm__ int32_t* arrayGmAddr, __gm__ WEIGHT_TYPE* binsGmAddr, const int64_t arrayHeadIndex,
     const int64_t arrayDataLength)
 {
-    // Simt::GetThreadIdx() is commonly used as an index for data, use different threads to process data with gm at
+    // threadIdx.x is commonly used as an index for data, use different threads to process data with gm at
     // different addresses
-    for (int64_t index = static_cast<int64_t>(Simt::GetThreadIdx()); index < arrayDataLength;
-         index += static_cast<int64_t>(Simt::GetThreadNum<0>())) {
+    for (int64_t index = static_cast<int64_t>(threadIdx.x); index < arrayDataLength;
+         index += static_cast<int64_t>(blockDim.x)) {
         int64_t arrayValue = static_cast<int64_t>(arrayGmAddr[arrayHeadIndex + index]);
-        Simt::AtomicAdd(binsGmAddr + arrayValue, static_cast<WEIGHT_TYPE>(WEIGHT_ONE));
+        asc_atomic_add(binsGmAddr + arrayValue, static_cast<WEIGHT_TYPE>(WEIGHT_ONE));
     }
 }
 
@@ -42,12 +46,12 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void GmSimtComputeWithWei
     __gm__ int32_t* arrayGmAddr, __gm__ WEIGHT_TYPE* weightsGmAddr, __gm__ WEIGHT_TYPE* binsGmAddr,
     const int64_t arrayHeadIndex, const int64_t arrayDataLength)
 {
-    // Simt::GetThreadIdx() is commonly used as an index for data, use different threads to process data with gm at
+    // threadIdx.x is commonly used as an index for data, use different threads to process data with gm at
     // different addresses
-    for (int64_t index = static_cast<int64_t>(Simt::GetThreadIdx()); index < arrayDataLength;
-         index += static_cast<int64_t>(Simt::GetThreadNum<0>())) {
+    for (int64_t index = static_cast<int64_t>(threadIdx.x); index < arrayDataLength;
+         index += static_cast<int64_t>(blockDim.x)) {
         int64_t arrayValue = static_cast<int64_t>(arrayGmAddr[arrayHeadIndex + index]);
-        Simt::AtomicAdd(binsGmAddr + arrayValue, weightsGmAddr[arrayHeadIndex + index]);
+        asc_atomic_add(binsGmAddr + arrayValue, weightsGmAddr[arrayHeadIndex + index]);
     }
 }
 
@@ -113,12 +117,12 @@ __aicore__ inline void BincountSimtNotFullLoadGm<WEIGHT_TYPE>::Compute()
     __gm__ WEIGHT_TYPE* binsGmAddr = (__gm__ WEIGHT_TYPE*)this->binsGm_.GetPhyAddr();
     // calculation of bincount by AtomicAdd in simt.
     if (this->isWeightEmpty_) {
-        Simt::VF_CALL<GmSimtCompute<WEIGHT_TYPE>>(
-            Simt::Dim3{THREAD_NUM}, arrayGmAddr, binsGmAddr, arrayHeadIndex, arrayDataLength);
+        asc_vf_call<GmSimtCompute<WEIGHT_TYPE>>(
+            dim3{THREAD_NUM}, arrayGmAddr, binsGmAddr, arrayHeadIndex, arrayDataLength);
     } else {
         __gm__ WEIGHT_TYPE* weightsGmAddr = (__gm__ WEIGHT_TYPE*)this->weightsGm_.GetPhyAddr();
-        Simt::VF_CALL<GmSimtComputeWithWeight<WEIGHT_TYPE>>(
-            Simt::Dim3{THREAD_NUM}, arrayGmAddr, weightsGmAddr, binsGmAddr, arrayHeadIndex, arrayDataLength);
+        asc_vf_call<GmSimtComputeWithWeight<WEIGHT_TYPE>>(
+            dim3{THREAD_NUM}, arrayGmAddr, weightsGmAddr, binsGmAddr, arrayHeadIndex, arrayDataLength);
     }
 }
 
