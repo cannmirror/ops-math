@@ -1144,7 +1144,7 @@ ge::graphStatus PadACTiling::Fp8Fp4ValidatePaddings()
     for (size_t i = 0; i < frontDimNum; ++i) {
         int64_t frontValue = paddings_.padFront.GetDim(i);
         if (frontValue < 0) {
-            OP_LOGD(context_, "Fp8Fp4ValidatePaddings padFront contains negative value at index %zu: %ld", i, frontValue);
+            OP_LOGE(context_, "Fp8Fp4ValidatePaddings padFront contains negative value at index %zu: %ld", i, frontValue);
             return ge::GRAPH_FAILED;
         }
     }
@@ -1153,7 +1153,7 @@ ge::graphStatus PadACTiling::Fp8Fp4ValidatePaddings()
     for (size_t i = 0; i < backDimNum; ++i) {
         int64_t backValue = paddings_.padBack.GetDim(i);
         if (backValue < 0) {
-            OP_LOGD(context_, "Fp8Fp4ValidatePaddings padBack contains negative value at index %zu: %ld", i, backValue);
+            OP_LOGE(context_, "Fp8Fp4ValidatePaddings padBack contains negative value at index %zu: %ld", i, backValue);
             return ge::GRAPH_FAILED;
         }
     }

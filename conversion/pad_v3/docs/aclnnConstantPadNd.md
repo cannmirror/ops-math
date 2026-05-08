@@ -232,10 +232,10 @@
         <td>当self的数据格式不为ND，out的数据格式与self的数据格式不一致。</td>
       </tr>
       <tr>
- 	      <td>当self的数据类型为fp8/fp4时，pad中元素不能为负数。</td>
+ 	      <td>当self的数据类型为HIFLOAT8、FLOAT8_E5M2、FLOAT8_E4M3FN、FLOAT8_E8M0、FLOAT4_E2M1、FLOAT4_E1M2时，pad中元素是负数。</td>
  	    </tr>
       <tr>
-      <td>当self的数据类型为HIFLOAT8、FLOAT8_E5M2、FLOAT8_E4M3FN、FLOAT8_E8M0时，value不为0。</td>
+        <td>对于CANN 9.0.0版本，当self的数据类型为HIFLOAT8、FLOAT8_E5M2、FLOAT8_E4M3FN、FLOAT8_E8M0时，value不为0。</td>
       </tr>
     </tbody>
     </table>

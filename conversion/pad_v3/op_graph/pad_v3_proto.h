@@ -32,7 +32,7 @@ namespace ge {
 * If the type of x is float4_e2m1 or float4_e1m2, paddings values should be even number.
 * If the type of x is hifloat8, float8_e5m2, float8_e4m3fn or float8_e8m0,
 * paddings values should be non-negative integers.
-* @li constant_values: A optional Tensor, dtype same as "x".
+* @li constant_values: An optional Tensor, dtype same as "x".
 * Is used only in "constant" mode.
 
 * @par Attributes:
