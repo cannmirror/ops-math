@@ -1751,8 +1751,8 @@
     <td>√</td>
     <td>√</td>
     <td>√</td>
-    <td>×</td>
-    <td>AI Core</td>
+    <td>√</td>
+    <td>AI Core/AI CPU</td>
     <td>该算子暂无Ascend C代码实现，欢迎开发者补充贡献，贡献方式参考<a href="../../CONTRIBUTING.md">贡献指南</a>。</td>
   </tr>
   <tr>

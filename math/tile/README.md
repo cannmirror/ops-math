@@ -129,3 +129,4 @@ repeats中的值必须大于等于0。
 | 调用方式   | 样例代码           | 说明                                         |
 | ---------------- | --------------------------- | --------------------------------------------------- |
 | aclnn接口 | [test_aclnn_repeat](./examples/test_aclnn_repeat.cpp) | 通过[aclnnRepeat](docs/aclnnRepeat.md)接口方式调用Tile算子。 |
+| 图模式调用 | [test_geir_tile](./examples/test_geir_tile.cpp) | 通过[算子IR](./op_graph/tile_proto.h)构图方式调用Tile算子。 |
