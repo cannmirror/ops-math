@@ -46,6 +46,17 @@ static const int64_t kCaptureIdx = 0L;
 
 static const std::set<ge::DataType> kSupportedDtypes = {ge::DT_FLOAT, ge::DT_FLOAT16, ge::DT_BF16};
 
+static void InitOffsetVariable(const es::EsTensorHolder& rOffset, const TensorDesc& offsetDesc)
+{
+    auto varNode = rOffset.GetProducer();
+    if (varNode != nullptr) {
+        varNode->UpdateOutputDesc(0, offsetDesc);
+        int64_t initValue = 0;
+        Tensor initTensor(offsetDesc, reinterpret_cast<uint8_t*>(&initValue), sizeof(int64_t));
+        varNode->SetAttr("init_value", initTensor);
+    }
+}
+
 static void GetInputsInfo(const std::vector<SubgraphInput>& subgraphInputs,
                           std::vector<Shape>& inputShapes,
                           std::vector<DataType>& inputDtypes,
@@ -187,6 +198,7 @@ std::unique_ptr<Graph> RandomStandardNormalFusionPass::Replacement(const std::un
     TensorDesc offsetDesc(Shape({1}), FORMAT_ND, DT_INT64);
 
     auto rOffset = replaceGraphBuilder.CreateVariable(1, varName.c_str());
+    InitOffsetVariable(rOffset, offsetDesc);
 
     auto v2Output = es::RandomStandardNormalV2(rShape, rOffset, seed, seed2, dtypeInt);
     GNode v2NodePtr = *v2Output.y.GetProducer();
@@ -200,7 +212,6 @@ std::unique_ptr<Graph> RandomStandardNormalFusionPass::Replacement(const std::un
     v2NodePtr.UpdateOutputDesc(0, outputYDesc);
     v2NodePtr.UpdateOutputDesc(1, offsetDesc);
 
-    es::EsGraphBuilder::SetOutput(v2Output.y, 0);
     GraphUniqPtr replaceGraph = replaceGraphBuilder.BuildAndReset({v2Output.y});
     return replaceGraph;
 }
