@@ -226,7 +226,9 @@ ge::graphStatus HistogramV2SimtTiling::Init()
 inline void HistogramV2SimtTiling::SetTilingKeyMode(int64_t inputDtypeVal) const
 {
     int64_t outputOffset = isFp32Output_ ? OUTPUT_FP32_KEY_OFFSET : 0;
-    int64_t determOffset = isDeterministic_ * DETERM_OFFSET;
+    // 只有输出为fp32才会走确定性逻辑的tilingKey
+    int64_t determOffset = isFp32Output_ ? isDeterministic_ * DETERM_OFFSET : 0;
+    
     if (bins_ < ubNumCanUse_) {
         context_->SetLocalMemorySize(aicoreParams_.ubSize);
         context_->SetTilingKey(TILING_KEY_UB_FULL + outputOffset + determOffset + inputDtypeVal);

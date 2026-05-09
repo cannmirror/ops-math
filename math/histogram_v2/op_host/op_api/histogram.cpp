@@ -88,8 +88,9 @@ const aclTensor* Histogram(
     float minValue, float maxValue, aclOpExecutor* executor)
 {
     if (IsAiCoreSupport(self, out)) {
-        // 当前只支持输出int32和f32
-        auto desDtype = (out->GetDataType() == op::DataType::DT_FLOAT16 || out->GetDataType() == op::DataType::DT_FLOAT) 
+        auto npuArch = op::GetCurrentPlatformInfo().GetCurNpuArch();
+        // 当前950支持输出int32和f32，其他芯片只支持int32
+        auto desDtype = ((out->GetDataType() == op::DataType::DT_FLOAT16 || out->GetDataType() == op::DataType::DT_FLOAT) && IsRegBase(npuArch)) 
             ? op::DataType::DT_FLOAT : op::DataType::DT_INT32;
         auto outAiCore = executor->AllocTensor(out->GetViewShape(), desDtype);
         return HistogramAiCore(self, min, max, outAiCore, bins, executor);
