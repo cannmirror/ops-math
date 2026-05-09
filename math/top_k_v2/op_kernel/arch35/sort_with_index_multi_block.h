@@ -74,10 +74,10 @@ __aicore__ inline void SortWithIndexMultiBlock<XType, UnsignedType, IsDescend, X
     this->globalHistGmWk_.SetGlobalBuffer((__gm__ uint32_t *)(workspace + wkOffset), histOffset);
     wkOffset = wkOffset + histOffset * sizeof(uint32_t);
 
-    uint64_t indexDbOffset = this->totalDataNum_ * this->unsortedDimParallel_;
-    indexDbOffset = this->CeilDivMul(indexDbOffset, oneBlockNumB32);
-    this->outIdxDbWK_.SetGlobalBuffer((__gm__ IndexType *)(workspace + wkOffset), indexDbOffset);
-    wkOffset = wkOffset + indexDbOffset * sizeof(IndexType);
+    uint64_t indexDbOffset = this->totalDataNum_ * this->unsortedDimParallel_ * sizeof(IndexType);
+    indexDbOffset = this->CeilDivMul(indexDbOffset, this->oneBlock_);
+    this->outIdxDbWK_.SetGlobalBuffer((__gm__ IndexType *)(workspace + wkOffset), indexDbOffset / sizeof(IndexType));
+    wkOffset = wkOffset + indexDbOffset;
 
     uint64_t histTileOffset = this->lastDimTileNum_ * Sort::RADIX_SORT_NUM * this->unsortedDimParallel_;
     this->histTileGmWk_.SetGlobalBuffer((__gm__ uint16_t *)(workspace + wkOffset), histTileOffset);
