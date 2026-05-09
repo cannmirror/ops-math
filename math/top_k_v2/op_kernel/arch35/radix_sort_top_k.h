@@ -27,6 +27,7 @@
 #include "top_k_util_type_simd.h"
 #include "radix_topk_util.h"
 #include "sort_with_index_entry.h"
+#include "simt_api/asc_simt.h"
 
 using namespace AscendC;
 using namespace topkV2;
@@ -469,12 +470,12 @@ __simt_vf__ LAUNCH_BOUND(topkV2::RADIX_SORT_BIN_NUM)
 __aicore__ inline void CopyCumSumToGmB64(__gm__ T_INDEX *cumSumBinsGm_, __ubuf__ int32_t *tileCusumBuffer, 
                                         uint32_t cumSumBinOffset, uint64_t tileTopkOffsetInUb) 
 {
-    for (int i = Simt::GetThreadIdx(); i < topkV2::RADIX_SORT_BIN_NUM / 2; i += topkV2::RADIX_SORT_BIN_NUM) {
+    for (int i = threadIdx.x; i < topkV2::RADIX_SORT_BIN_NUM / 2; i += topkV2::RADIX_SORT_BIN_NUM) {
 #pragma unroll
         for (int j = 0; j < 2; j++) {
             uint32_t offset = i + j * topkV2::RADIX_SORT_BIN_NUM / 2;
             T_INDEX srcData = static_cast<T_INDEX>(tileCusumBuffer[tileTopkOffsetInUb + offset]);
-            Simt::AtomicAdd<T_INDEX>(cumSumBinsGm_ + cumSumBinOffset + offset, srcData);
+            asc_atomic_add(cumSumBinsGm_ + cumSumBinOffset + offset, srcData);
         }
     }
 }
@@ -484,10 +485,10 @@ __simt_vf__ LAUNCH_BOUND(topkV2::RADIX_SORT_BIN_NUM)
 __aicore__ inline void CopyCumSumToGmB8B16B32(__gm__ T_INDEX *cumSumBinsGm_, __ubuf__ int32_t *tileCusumBuffer, 
                                         uint32_t cumSumBinOffset, uint64_t tileTopkOffsetInUb) 
 {   
-    for (int i = Simt::GetThreadIdx(); i < topkV2::RADIX_SORT_BIN_NUM; i+= topkV2::RADIX_SORT_BIN_NUM) {
+    for (int i = threadIdx.x; i < topkV2::RADIX_SORT_BIN_NUM; i+= topkV2::RADIX_SORT_BIN_NUM) {
         uint32_t offset = i;
         T_INDEX srcData = static_cast<T_INDEX>(tileCusumBuffer[tileTopkOffsetInUb + offset]);
-        Simt::AtomicAdd<T_INDEX>(cumSumBinsGm_ + cumSumBinOffset + offset, srcData);
+        asc_atomic_add(cumSumBinsGm_ + cumSumBinOffset + offset, srcData);
     }
 }
 
@@ -586,13 +587,13 @@ __aicore__ inline void RadixSortTopK<T, UNSIGNED_TYPE, NUM_PASS, IS_LARGEST, IS_
                 WaitFlag<HardEvent::V_MTE3>(eventId);
                 if constexpr (IsSameType<T_INDEX, int64_t>::value) {
                     if constexpr (NUM_PASS == topkV2::B64_BITE_SIZE) {
-                        Simt::VF_CALL<CopyCumSumToGmB64<T_INDEX, T_INDEX_TO>>(Simt::Dim3(topkV2::RADIX_SORT_BIN_NUM),
+                        asc_vf_call<CopyCumSumToGmB64<T_INDEX, T_INDEX_TO>>(dim3(topkV2::RADIX_SORT_BIN_NUM),
                             (__gm__ T_INDEX *)(cumSumBinsGm_.GetPhyAddr()),
                             (__ubuf__ int32_t *)(tileCusumBuffer.GetPhyAddr()),
                             cumSumBinOffset,
                             tileTopkOffsetInUb);
                     } else {
-                        Simt::VF_CALL<CopyCumSumToGmB8B16B32<T_INDEX, T_INDEX_TO>>(Simt::Dim3(topkV2::RADIX_SORT_BIN_NUM),
+                        asc_vf_call<CopyCumSumToGmB8B16B32<T_INDEX, T_INDEX_TO>>(dim3(topkV2::RADIX_SORT_BIN_NUM),
                             (__gm__ T_INDEX *)(cumSumBinsGm_.GetPhyAddr()),
                             (__ubuf__ int32_t *)(tileCusumBuffer.GetPhyAddr()),
                             cumSumBinOffset,

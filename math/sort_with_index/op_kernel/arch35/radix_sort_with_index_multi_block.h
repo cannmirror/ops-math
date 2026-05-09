@@ -22,6 +22,7 @@
 #include "../../sort/arch35/sort_radix_sort_more_core.h"
 #include "../../sort/arch35/sort_tiling_data.h" // sort_radix_sort_more_core.h 里面引用了 sort_tiling_data.h
 #include "../../sort/arch35/util_type_simd.h" // 使用 ROUND_UP_AGLIN , DoubleBufferSimd
+#include "simt_api/asc_simt.h"
 
 namespace SortWithIndex {
 
@@ -312,7 +313,7 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM_NUM)__aicore__ void CopyOutGmWithIndex(
     __gm__ volatile IndexType *indexDoubleBufferGmAddr,   // 输出workspcae的idx
     __gm__ volatile XType *inputXDoubleBufferAddr)        // 输出workspace的value
 {
-    for (int i = Simt::GetThreadIdx(); i < Sort::RADIX_SORT_NUM; i += THREAD_DIM_NUM) {
+    for (int i = threadIdx.x; i < Sort::RADIX_SORT_NUM; i += THREAD_DIM_NUM) {
         // how many data key = i and block id le to now block id
         XRangeType blockHistCumsumVal = blockHistFlagAddr[i]; // lookahead_output
         // 高2比特为状态位
@@ -333,8 +334,8 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM_NUM)__aicore__ void CopyOutGmWithIndex(
         XRangeType finalpos = globalKeyOffsetVal + blockHistCumsumVal - blockHistVal - blockExcusiveSumVal;
         blockDataInGlobalPosAddr[i] = finalpos;
     }
-    Simt::ThreadBarrier();
-    for (int i = Simt::GetThreadIdx(); i < cureTileSize; i += THREAD_DIM_NUM) {
+    asc_syncthreads();
+    for (int i = threadIdx.x; i < cureTileSize; i += THREAD_DIM_NUM) {
         // i stand for pos
         // sorted lcoal index content  stand for data index
         // 本地排序后的数据索引
@@ -361,7 +362,7 @@ __aicore__ inline void RadixSortWithIndexMultiBlock<XType, UnsignedType, IsDesce
     uint32_t unSortIdOffset = unSortId * Sort::RADIX_SORT_NUM * sizeof(XType) + sortRound * Sort::RADIX_SORT_NUM;
     GlobalTensor<IndexType> outIdxT2 = (idxDbGm_.Alternate()).template ReinterpretCast<IndexType>();
 
-    Simt::VF_CALL<CopyOutGmWithIndex<XType, IndexType, XRangeType>>(Simt::Dim3(THREAD_DIM_NUM), tileDataStart, cureTileSize,
+    asc_vf_call<CopyOutGmWithIndex<XType, IndexType, XRangeType>>(dim3(THREAD_DIM_NUM), tileDataStart, cureTileSize,
         outputXUnsortedAxisOffset, unSortIdOffset, (__ubuf__ uint16_t *)(blockExcusiveSum.GetPhyAddr()),
         (__gm__ XRangeType *)(this->excusiveBinsGmWk_.GetPhyAddr()), (__ubuf__ XRangeType *)(blockDataInGlobalPos.GetPhyAddr()),
         (__ubuf__ uint32_t *)(sortedIndexLocal.GetPhyAddr()), (__ubuf__ IndexType *)(xInputIndexLocal.GetPhyAddr()),
