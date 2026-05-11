@@ -9,11 +9,12 @@
  */
 
 #include "clip_by_value_v2_aicpu.h"
-#include <cstdio>
-#include <complex>
-#include <string>
+#include <algorithm>
 #include <cmath>
-#include <unsupported/Eigen/CXX11/Tensor>
+#include <complex>
+#include <cstdint>
+#include <type_traits>
+#include <unsupported/Eigen/CXX11/Tensor>   // for Eigen::half / Eigen::bfloat16 type definitions only
 #include "cpu_kernel_utils.h"
 #include "cpu_types.h"
 #include "log.h"
@@ -22,158 +23,215 @@
 
 namespace {
 const char* const kClipByValueV2 = "ClipByValueV2";
-const uint32_t kInputNum = 3;
-const uint32_t kOutputNum = 1;
-const uint32_t kIndexTwo = 2;
-constexpr int64_t kParallelDataNum = static_cast<int64_t>(256) * static_cast<int64_t>(1024);
-constexpr int64_t kComplexParallelDataNum = static_cast<int64_t>(32) * static_cast<int64_t>(1024);
+constexpr uint32_t kInputNum = 3U;
+constexpr uint32_t kOutputNum = 1U;
+constexpr uint32_t kIndexTwo = 2U;
+constexpr int64_t kParallelBytesThresh = 200LL * 1024LL;
+constexpr int64_t kComplexParallelBytesThresh = 40LL * 1024LL;
+constexpr int64_t kCpuReserveK = 2;
 } // namespace
+
 namespace aicpu {
-
 template <typename T>
-void CommonCompute(const CpuKernelContext& ctx, int64_t start, int64_t end, T (*y_index_compute_func)(T, T, T))
+__attribute__((always_inline)) inline T ClampScalar(T x, T mn, T mx) noexcept
 {
-    auto input_x = reinterpret_cast<T*>(ctx.Input(0)->GetData());
-    auto input_min = reinterpret_cast<T*>(ctx.Input(1)->GetData());
-    auto input_max = reinterpret_cast<T*>(ctx.Input(kIndexTwo)->GetData());
-    auto output_y = reinterpret_cast<T*>(ctx.Output(0)->GetData());
-    auto input_min_index = input_min;
-    auto input_max_index = input_max;
-    // NumElements() == 1兼容标量和shape为[1]的场景
-    bool is_scalar = ctx.Input(1)->NumElements() == 1 ? true : false;
-
-    for (int64_t i = start; i < end; i++) {
-        auto x_index = input_x + i;
-        auto y_index = output_y + i;
-        if (!is_scalar) {
-            input_min_index = input_min + i;
-            input_max_index = input_max + i;
+    if constexpr (std::is_floating_point_v<T>) {
+        // Standard floating point: any NaN yields NaN. std::isnan(NaN) == true.
+        if (std::isnan(x) || std::isnan(mn) || std::isnan(mx)) {
+            return std::numeric_limits<T>::quiet_NaN();
         }
-
-        *y_index = y_index_compute_func(*x_index, *input_min_index, *input_max_index);
+        return std::min(std::max(x, mn), mx);
+    } else if constexpr (std::is_same_v<T, Eigen::half> || std::is_same_v<T, Eigen::bfloat16>) {
+        // Eigen half precision: compute in float to preserve NaN semantics.
+        float xf = static_cast<float>(x);
+        float mnf = static_cast<float>(mn);
+        float mxf = static_cast<float>(mx);
+        if (std::isnan(xf) || std::isnan(mnf) || std::isnan(mxf)) {
+            return static_cast<T>(std::numeric_limits<float>::quiet_NaN());
+        }
+        return static_cast<T>(std::min(std::max(xf, mnf), mxf));
+    } else {
+        return std::min(std::max(x, mn), mx);
     }
 }
 
 template <typename T>
-auto ComputeClamp(T x_index, T input_min_index, T input_max_index) -> T
+__attribute__((always_inline)) inline std::complex<T> ClampComplex(
+    std::complex<T> x, std::complex<T> mn, std::complex<T> mx) noexcept
 {
-    if (std::isnan(x_index) || std::isnan(input_min_index) || std::isnan(input_max_index)) {
-        return static_cast<T>(NAN);
+    const T nx = std::norm(x);
+    const T nmn = std::norm(mn);
+    const T nmx = std::norm(mx);
+    std::complex<T> tmp = (nx <= nmn) ? mn : x;
+    const T ntmp = (nx <= nmn) ? nmn : nx;
+    return (ntmp <= nmx) ? tmp : mx;
+}
+
+template <typename T>
+__attribute__((hot)) static void KernelScalarBound(
+    const T* __restrict__ x, T* __restrict__ y, int64_t beg, int64_t end, T mn_v, T mx_v) noexcept
+{
+    for (int64_t i = beg; i < end; ++i) {
+        y[i] = ClampScalar<T>(x[i], mn_v, mx_v);
     }
-    return std::min(std::max(x_index, input_min_index), input_max_index);
 }
 
 template <typename T>
-auto ComputeComplexClamp(T x_index, T input_min_index, T input_max_index) -> T
+__attribute__((hot)) static void KernelElemBound(
+    const T* __restrict__ x, const T* __restrict__ mn, const T* __restrict__ mx, T* __restrict__ y, int64_t beg,
+    int64_t end) noexcept
 {
-    auto tmp = std::abs(x_index) <= std::abs(input_min_index) ? input_min_index : x_index;
-    return std::abs(tmp) <= std::abs(input_max_index) ? tmp : input_max_index;
+    for (int64_t i = beg; i < end; ++i) {
+        y[i] = ClampScalar<T>(x[i], mn[i], mx[i]);
+    }
 }
 
 template <typename T>
-void ComputeImpl(const CpuKernelContext& ctx, int64_t start, int64_t end)
+__attribute__((hot)) static void KernelComplexScalar(
+    const std::complex<T>* __restrict__ x, std::complex<T>* __restrict__ y, int64_t beg, int64_t end,
+    std::complex<T> mn_v, std::complex<T> mx_v) noexcept
 {
-    CommonCompute<T>(ctx, start, end, ComputeClamp<T>);
+    for (int64_t i = beg; i < end; ++i) {
+        y[i] = ClampComplex<T>(x[i], mn_v, mx_v);
+    }
 }
 
 template <typename T>
-uint32_t DoCompute(const CpuKernelContext& ctx)
+__attribute__((hot)) static void KernelComplexElem(
+    const std::complex<T>* __restrict__ x, const std::complex<T>* __restrict__ mn,
+    const std::complex<T>* __restrict__ mx, std::complex<T>* __restrict__ y, int64_t beg, int64_t end) noexcept
 {
-    if (ctx.Input(0)->NumElements() == 1) {
-        auto input_x = reinterpret_cast<T*>(ctx.Input(0)->GetData());
-        auto input_min = reinterpret_cast<T*>(ctx.Input(1)->GetData());
-        auto input_max = reinterpret_cast<T*>(ctx.Input(kIndexTwo)->GetData());
-        auto output_y = reinterpret_cast<T*>(ctx.Output(0)->GetData());
-        *output_y = std::min(std::max(*input_x, *input_min), *input_max);
+    for (int64_t i = beg; i < end; ++i) {
+        y[i] = ClampComplex<T>(x[i], mn[i], mx[i]);
+    }
+}
+
+// parallel dispatch wrapper -- adaptive serial fallback + byte-level grain.
+template <typename Body>
+static uint32_t DispatchParallel(
+    const CpuKernelContext& ctx, const char* branch_tag, int64_t total, int64_t per_unit_bytes,
+    int64_t bytes_thresh, Body&& body)
+{
+    const int64_t total_bytes = total * per_unit_bytes;
+    if (total_bytes < bytes_thresh) {
+        KERNEL_LOG_INFO(
+            "[%s] branch=%s serial path: total=%ld, total_bytes=%ld < thresh=%ld.",
+            ctx.GetOpType().c_str(), branch_tag, total, total_bytes, bytes_thresh);
+        body(static_cast<int64_t>(0), total);
         return KERNEL_STATUS_OK;
     }
 
-    int64_t data_num = ctx.Input(0)->NumElements();
-    if (data_num >= kParallelDataNum) {
-        uint32_t min_core_num = 1;
-        uint32_t max_core_num = std::max(min_core_num, aicpu::CpuKernelUtils::GetCPUNum(ctx) - 2);
-        auto sharde = [&ctx](size_t start, size_t end) { ComputeImpl<T>(ctx, start, end); };
-        auto per_unit_size = CeilMultiple(data_num, max_core_num);
-        KERNEL_HANDLE_ERROR(CpuKernelUtils::ParallelFor(ctx, data_num, per_unit_size, sharde), "Compute failed.");
-    } else {
-        ComputeImpl<T>(ctx, 0, data_num);
+    const int64_t cpu_num = static_cast<int64_t>(aicpu::CpuKernelUtils::GetCPUNum(ctx));
+    const int64_t max_core_num = std::max<int64_t>(1, std::max(cpu_num, kCpuReserveK) - kCpuReserveK);
+    const int64_t per_unit = CeilMultiple(total, max_core_num);
+    const int64_t grain_bytes = per_unit * per_unit_bytes;
+
+    KERNEL_LOG_INFO(
+        "[%s] branch=%s parallel path: total=%ld, total_bytes=%ld, cpu_num=%ld, cores=%ld, grain_bytes=%ld.",
+        ctx.GetOpType().c_str(), branch_tag, total, total_bytes, cpu_num, max_core_num, grain_bytes);
+
+    auto sharde = [&body](size_t b, size_t e) {
+        body(static_cast<int64_t>(b), static_cast<int64_t>(e));
+    };
+    const uint32_t rc = CpuKernelUtils::ParallelFor(ctx, total, grain_bytes, sharde);
+    if (rc != KERNEL_STATUS_OK) {
+        KERNEL_LOG_ERROR(
+            "[%s] ParallelFor failed, branch=%s, rc=%u, total=%ld, grain_bytes=%ld, cores=%ld.",
+            ctx.GetOpType().c_str(), branch_tag, rc, total, grain_bytes, max_core_num);
+        return rc;
     }
     return KERNEL_STATUS_OK;
 }
 
 template <typename T>
-void ComplexComputeImpl(const CpuKernelContext& ctx, int64_t start, int64_t end)
+static uint32_t DoCompute(const CpuKernelContext& ctx)
 {
-    CommonCompute<T>(ctx, start, end, ComputeComplexClamp<T>);
-}
+    const T* __restrict__ x_ptr = aicpu::PtrToPtr<void, const T>(ctx.Input(0)->GetData());
+    const T* __restrict__ mn_ptr = aicpu::PtrToPtr<void, const T>(ctx.Input(1)->GetData());
+    const T* __restrict__ mx_ptr = aicpu::PtrToPtr<void, const T>(ctx.Input(kIndexTwo)->GetData());
+    T* __restrict__ y_ptr = aicpu::PtrToPtr<void, T>(ctx.Output(0)->GetData());
 
-template <typename T>
-uint32_t DoComplexCompute(const CpuKernelContext& ctx)
-{
-    if (ctx.Input(0)->NumElements() == 1) {
-        auto input_x = reinterpret_cast<T*>(ctx.Input(0)->GetData());
-        auto input_min = reinterpret_cast<T*>(ctx.Input(1)->GetData());
-        auto input_max = reinterpret_cast<T*>(ctx.Input(kIndexTwo)->GetData());
-        auto output_y = reinterpret_cast<T*>(ctx.Output(0)->GetData());
-        auto tmp = std::abs(*input_x) <= std::abs(*input_min) ? *input_min : *input_x;
-        *output_y = std::abs(tmp) <= std::abs(*input_max) ? tmp : *input_max;
+    const int64_t data_num = ctx.Input(0)->NumElements();
+    const bool is_scalar = (ctx.Input(1)->NumElements() == 1);
+
+    // Degenerate form: single-element output computed directly.
+    if (__builtin_expect(data_num == 1, 0)) {
+        y_ptr[0] = ClampScalar<T>(x_ptr[0], mn_ptr[0], mx_ptr[0]);
         return KERNEL_STATUS_OK;
     }
 
-    int64_t data_num = ctx.Input(0)->NumElements();
-    if (data_num >= kComplexParallelDataNum) {
-        uint32_t min_core_num = 1;
-        uint32_t max_core_num = std::max(min_core_num, aicpu::CpuKernelUtils::GetCPUNum(ctx) - 2);
-        auto sharde = [&ctx](size_t start, size_t end) { ComplexComputeImpl<T>(ctx, start, end); };
-        auto per_unit_size = CeilMultiple(data_num, max_core_num);
-        KERNEL_HANDLE_ERROR(CpuKernelUtils::ParallelFor(ctx, data_num, per_unit_size, sharde), "Compute failed.");
-    } else {
-        ComplexComputeImpl<T>(ctx, 0, data_num);
+    constexpr int64_t elem_bytes = static_cast<int64_t>(sizeof(T));
+
+    if (is_scalar) {
+        // Specialized branch: min/max broadcast; preload the scalars into local registers.
+        const T mn_v = mn_ptr[0];
+        const T mx_v = mx_ptr[0];
+        auto body = [x_ptr, y_ptr, mn_v, mx_v](int64_t b, int64_t e) {
+            KernelScalarBound<T>(x_ptr, y_ptr, b, e, mn_v, mx_v);
+        };
+        return DispatchParallel(ctx, "real-scalar", data_num, elem_bytes, kParallelBytesThresh, body);
     }
 
-    return KERNEL_STATUS_OK;
+    auto body = [x_ptr, mn_ptr, mx_ptr, y_ptr](int64_t b, int64_t e) {
+        KernelElemBound<T>(x_ptr, mn_ptr, mx_ptr, y_ptr, b, e);
+    };
+    return DispatchParallel(ctx, "real-elem", data_num, elem_bytes, kParallelBytesThresh, body);
 }
 
-static std::map<DataType, std::function<uint32_t(const CpuKernelContext&)>> kg_clip_calls = {
-    {DT_DOUBLE, DoCompute<double>},
-    {DT_FLOAT, DoCompute<float>},
-    {DT_FLOAT16, DoCompute<Eigen::half>},
-    {DT_INT16, DoCompute<int16_t>},
-    {DT_INT32, DoCompute<int32_t>},
-    {DT_INT64, DoCompute<int64_t>},
-    {DT_INT8, DoCompute<int8_t>},
-    {DT_UINT8, DoCompute<uint8_t>},
-    {DT_UINT16, DoCompute<uint16_t>},
-    {DT_UINT32, DoCompute<uint32_t>},
-    {DT_UINT64, DoCompute<uint64_t>},
-    {DT_QUINT8, DoCompute<uint8_t>},
-    {DT_QINT8, DoCompute<int8_t>},
-    {DT_QINT32, DoCompute<int32_t>},
-    {DT_BFLOAT16, DoCompute<Eigen::bfloat16>},
-    {DT_COMPLEX64, DoComplexCompute<std::complex<float>>},
-    {DT_COMPLEX128, DoComplexCompute<std::complex<double>>}};
+template <typename T>
+static uint32_t DoComplexCompute(const CpuKernelContext& ctx)
+{
+    using C = std::complex<T>;
+    const C* __restrict__ x_ptr = aicpu::PtrToPtr<void, const C>(ctx.Input(0)->GetData());
+    const C* __restrict__ mn_ptr = aicpu::PtrToPtr<void, const C>(ctx.Input(1)->GetData());
+    const C* __restrict__ mx_ptr = aicpu::PtrToPtr<void, const C>(ctx.Input(kIndexTwo)->GetData());
+    C* __restrict__ y_ptr = aicpu::PtrToPtr<void, C>(ctx.Output(0)->GetData());
 
-uint32_t GetInputAndCheck(const CpuKernelContext& ctx)
+    const int64_t data_num = ctx.Input(0)->NumElements();
+    const bool is_scalar = (ctx.Input(1)->NumElements() == 1);
+
+    if (__builtin_expect(data_num == 1, 0)) {
+        y_ptr[0] = ClampComplex<T>(x_ptr[0], mn_ptr[0], mx_ptr[0]);
+        return KERNEL_STATUS_OK;
+    }
+
+    constexpr int64_t elem_bytes = static_cast<int64_t>(sizeof(C));
+
+    if (is_scalar) {
+        const C mn_v = mn_ptr[0];
+        const C mx_v = mx_ptr[0];
+        auto body = [x_ptr, y_ptr, mn_v, mx_v](int64_t b, int64_t e) {
+            KernelComplexScalar<T>(x_ptr, y_ptr, b, e, mn_v, mx_v);
+        };
+        return DispatchParallel(ctx, "complex-scalar", data_num, elem_bytes, kComplexParallelBytesThresh, body);
+    }
+
+    auto body = [x_ptr, mn_ptr, mx_ptr, y_ptr](int64_t b, int64_t e) {
+        KernelComplexElem<T>(x_ptr, mn_ptr, mx_ptr, y_ptr, b, e);
+    };
+    return DispatchParallel(ctx, "complex-elem", data_num, elem_bytes, kComplexParallelBytesThresh, body);
+}
+
+static uint32_t GetInputAndCheck(const CpuKernelContext& ctx)
 {
     auto x_tensor = ctx.Input(0);
     auto min_tensor = ctx.Input(1);
     auto max_tensor = ctx.Input(kIndexTwo);
     auto y_tensor = ctx.Output(0);
-    auto dtype = x_tensor->GetDataType();
+    const auto dtype = x_tensor->GetDataType();
     if ((dtype != min_tensor->GetDataType()) || (dtype != max_tensor->GetDataType()) ||
         (dtype != y_tensor->GetDataType())) {
         KERNEL_LOG_ERROR(
-            "dtype is not same, x dtype is [%s], clip_value_min dtype is [%s], "
-            "clip_value_max dtype is [%s], y dtype is [%s]",
-            DTypeStr(dtype).c_str(), DTypeStr(min_tensor->GetDataType()).c_str(),
+            "[%s] dtype mismatch: x=[%s], clip_value_min=[%s], clip_value_max=[%s], y=[%s], expect all equal.",
+            ctx.GetOpType().c_str(), DTypeStr(dtype).c_str(), DTypeStr(min_tensor->GetDataType()).c_str(),
             DTypeStr(max_tensor->GetDataType()).c_str(), DTypeStr(y_tensor->GetDataType()).c_str());
         return KERNEL_STATUS_PARAM_INVALID;
     }
 
     if (x_tensor->NumElements() != y_tensor->NumElements()) {
         KERNEL_LOG_ERROR(
-            "The numelements of the x [%ld] need be the same as the y [%ld].", x_tensor->NumElements(),
-            y_tensor->NumElements());
+            "[%s] numelements mismatch: x=%ld, y=%ld, expect equal.",
+            ctx.GetOpType().c_str(), x_tensor->NumElements(), y_tensor->NumElements());
         return KERNEL_STATUS_PARAM_INVALID;
     }
 
@@ -181,38 +239,81 @@ uint32_t GetInputAndCheck(const CpuKernelContext& ctx)
         return KERNEL_STATUS_OK;
     }
 
-    auto x_shape = x_tensor->GetTensorShape()->GetDimSizes();
-    auto min_shape = min_tensor->GetTensorShape()->GetDimSizes();
-    auto max_shape = max_tensor->GetTensorShape()->GetDimSizes();
+    const auto& x_shape = x_tensor->GetTensorShape()->GetDimSizes();
+    const auto& min_shape = min_tensor->GetTensorShape()->GetDimSizes();
+    const auto& max_shape = max_tensor->GetTensorShape()->GetDimSizes();
     if (x_shape != min_shape || x_shape != max_shape) {
         KERNEL_LOG_ERROR(
-            "input shape is not same, x_shape is [%s], min_shape is [%s], max_shape is [%s]",
-            VectorToString(x_shape).c_str(), VectorToString(min_shape).c_str(), VectorToString(max_shape).c_str());
+            "[%s] shape mismatch: x=[%s], min=[%s], max=[%s], expect min/max to be scalar or same shape as x.",
+            ctx.GetOpType().c_str(), VectorToString(x_shape).c_str(), VectorToString(min_shape).c_str(),
+            VectorToString(max_shape).c_str());
         return KERNEL_STATUS_PARAM_INVALID;
     }
     return KERNEL_STATUS_OK;
+}
+
+static uint32_t DispatchByDtype(const CpuKernelContext& ctx, DataType dtype)
+{
+    switch (dtype) {
+        case DT_DOUBLE:
+            return DoCompute<double>(ctx);
+        case DT_FLOAT:
+            return DoCompute<float>(ctx);
+        case DT_FLOAT16:
+            return DoCompute<Eigen::half>(ctx);
+        case DT_BFLOAT16:
+            return DoCompute<Eigen::bfloat16>(ctx);
+        case DT_INT8:
+        case DT_QINT8:
+            return DoCompute<int8_t>(ctx);
+        case DT_INT16:
+            return DoCompute<int16_t>(ctx);
+        case DT_INT32:
+        case DT_QINT32:
+            return DoCompute<int32_t>(ctx);
+        case DT_INT64:
+            return DoCompute<int64_t>(ctx);
+        case DT_UINT8:
+        case DT_QUINT8:
+            return DoCompute<uint8_t>(ctx);
+        case DT_UINT16:
+            return DoCompute<uint16_t>(ctx);
+        case DT_UINT32:
+            return DoCompute<uint32_t>(ctx);
+        case DT_UINT64:
+            return DoCompute<uint64_t>(ctx);
+        case DT_COMPLEX64:
+            return DoComplexCompute<float>(ctx);
+        case DT_COMPLEX128:
+            return DoComplexCompute<double>(ctx);
+        default:
+            KERNEL_LOG_ERROR(
+                "[%s] input dtype=%d (%s) not supported, expect one of "
+                "{double,float,float16,bfloat16,int8/16/32/64,uint8/16/32/64,qint8/32,quint8,complex64/128}.",
+                ctx.GetOpType().c_str(), static_cast<int>(dtype), DTypeStr(dtype).c_str());
+            return KERNEL_STATUS_PARAM_INVALID;
+    }
 }
 
 uint32_t ClipByValueV2CpuKernel::Compute(CpuKernelContext& ctx)
 {
     KERNEL_HANDLE_ERROR(NormalCheck(ctx, kInputNum, kOutputNum), "Check ClipByValueV2 params failed.");
     if (ctx.Input(0)->NumElements() == 0) {
-        KERNEL_LOG_INFO("[%s] Input is empty tensor.", ctx.GetOpType().c_str());
+        KERNEL_LOG_INFO("[%s] Input is empty tensor, skip compute.", ctx.GetOpType().c_str());
         return KERNEL_STATUS_OK;
     }
 
     KERNEL_HANDLE_ERROR(GetInputAndCheck(ctx), "Check ClipByValueV2 params failed.");
 
-    auto input_dtype = ctx.Input(0)->GetDataType();
-    const auto& func = kg_clip_calls.find(input_dtype);
-    if (func != kg_clip_calls.end()) {
-        return (func->second)(ctx);
-    } else {
-        KERNEL_LOG_ERROR("input type[%d] not support", input_dtype);
-        return KERNEL_STATUS_PARAM_INVALID;
-    }
+    const DataType input_dtype = ctx.Input(0)->GetDataType();
+    const int64_t total_elems = ctx.Input(0)->NumElements();
+    const bool is_scalar_bounds = (ctx.Input(1)->NumElements() == 1);
+    KERNEL_LOG_INFO(
+        "[%s] Compute begin: dtype=%d (%s), total_elems=%ld, is_scalar_bounds=%d.",
+        ctx.GetOpType().c_str(), static_cast<int>(input_dtype), DTypeStr(input_dtype).c_str(),
+        total_elems, static_cast<int>(is_scalar_bounds));
 
-    return KERNEL_STATUS_OK;
+    return DispatchByDtype(ctx, input_dtype);
 }
 
 REGISTER_CPU_KERNEL(kClipByValueV2, ClipByValueV2CpuKernel);

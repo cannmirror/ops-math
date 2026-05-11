@@ -305,3 +305,105 @@ TEST_F(TEST_CLIP_BY_VALUE_V2_UT, TEST_NAN_SUCCESS)
     RUN_KERNEL(node_def, HOST, KERNEL_STATUS_OK);
     EXPECT_EQ(CompareResultCompatibleWithNAN<double>(output, expect_output, 4), true);
 }
+
+// Large parallel path (>200KB): scalar min/max branch
+TEST_F(TEST_CLIP_BY_VALUE_V2_UT, TEST_LARGE_SCALAR_PARALLEL_FLOAT)
+{
+    const int64_t n = 128 * 1024;  // 512KB > 200KB parallel thresh
+    vector<DataType> data_types = {DT_FLOAT, DT_FLOAT, DT_FLOAT, DT_FLOAT};
+    vector<vector<int64_t>> shapes = {{n}, {}, {}, {n}};
+    std::vector<float> input0(n);
+    std::vector<float> output(n, 0.0f);
+    std::vector<float> expect_output(n);
+    for (int64_t i = 0; i < n; ++i) {
+        input0[i] = static_cast<float>((i % 10) - 5);  // -5..4
+        float v = input0[i];
+        v = v < -2.0f ? -2.0f : v;
+        v = v > 2.0f ? 2.0f : v;
+        expect_output[i] = v;
+    }
+    float mn = -2.0f;
+    float mx = 2.0f;
+    vector<void*> datas = {(void*)input0.data(), (void*)&mn, (void*)&mx, (void*)output.data()};
+    CREATE_NODEDEF(shapes, data_types, datas);
+    RUN_KERNEL(node_def, HOST, KERNEL_STATUS_OK);
+    EXPECT_EQ(CompareResult<float>(output.data(), expect_output.data(), n), true);
+}
+
+// Large parallel path: elementwise min/max (tensor bounds)
+TEST_F(TEST_CLIP_BY_VALUE_V2_UT, TEST_LARGE_ELEM_PARALLEL_INT32)
+{
+    const int64_t n = 128 * 1024;  // 512KB
+    vector<DataType> data_types = {DT_INT32, DT_INT32, DT_INT32, DT_INT32};
+    vector<vector<int64_t>> shapes = {{n}, {n}, {n}, {n}};
+    std::vector<int32_t> input0(n), input1(n), input2(n), output(n, 0), expect(n);
+    for (int64_t i = 0; i < n; ++i) {
+        input0[i] = static_cast<int32_t>(i - 50);
+        input1[i] = -10;
+        input2[i] = 100;
+        int32_t v = input0[i];
+        if (v < input1[i]) v = input1[i];
+        if (v > input2[i]) v = input2[i];
+        expect[i] = v;
+    }
+    vector<void*> datas = {(void*)input0.data(), (void*)input1.data(), (void*)input2.data(), (void*)output.data()};
+    CREATE_NODEDEF(shapes, data_types, datas);
+    RUN_KERNEL(node_def, HOST, KERNEL_STATUS_OK);
+    EXPECT_EQ(CompareResult<int32_t>(output.data(), expect.data(), n), true);
+}
+
+// Large parallel path: complex64, scalar bounds (worth parallelizing due to norm comp)
+TEST_F(TEST_CLIP_BY_VALUE_V2_UT, TEST_LARGE_COMPLEX64_SCALAR_PARALLEL)
+{
+    const int64_t n = 8 * 1024;  // ~64KB of complex64 > 40KB thresh
+    vector<DataType> data_types = {DT_COMPLEX64, DT_COMPLEX64, DT_COMPLEX64, DT_COMPLEX64};
+    vector<vector<int64_t>> shapes = {{n}, {}, {}, {n}};
+    std::vector<std::complex<float>> input0(n), output(n), expect(n);
+    std::complex<float> mn(1.0f, 0.0f);
+    std::complex<float> mx(5.0f, 0.0f);
+    for (int64_t i = 0; i < n; ++i) {
+        input0[i] = std::complex<float>(static_cast<float>(i % 7), 0.0f);
+        // reference: same as ComputeComplexClamp via abs
+        auto tmp = std::abs(input0[i]) <= std::abs(mn) ? mn : input0[i];
+        expect[i] = std::abs(tmp) <= std::abs(mx) ? tmp : mx;
+    }
+    vector<void*> datas = {(void*)input0.data(), (void*)&mn, (void*)&mx, (void*)output.data()};
+    CREATE_NODEDEF(shapes, data_types, datas);
+    RUN_KERNEL(node_def, HOST, KERNEL_STATUS_OK);
+    EXPECT_EQ(CompareResult<std::complex<float>>(output.data(), expect.data(), n), true);
+}
+
+// Integer clamp boundary: value equals min / max
+TEST_F(TEST_CLIP_BY_VALUE_V2_UT, TEST_INT_EQUAL_BOUNDS)
+{
+    vector<DataType> data_types = {DT_INT32, DT_INT32, DT_INT32, DT_INT32};
+    vector<vector<int64_t>> shapes = {{1, 5}, {}, {}, {1, 5}};
+    int32_t input0[5] = {-5, -2, 0, 2, 5};
+    int32_t mn = -2;
+    int32_t mx = 2;
+    int32_t expect_output[5] = {-2, -2, 0, 2, 2};
+    int32_t output[5] = {0};
+    vector<void*> datas = {(void*)input0, (void*)&mn, (void*)&mx, (void*)output};
+    CREATE_NODEDEF(shapes, data_types, datas);
+    RUN_KERNEL(node_def, HOST, KERNEL_STATUS_OK);
+    EXPECT_EQ(CompareResult<int32_t>(output, expect_output, 5), true);
+}
+
+// bfloat16 scalar bounds
+TEST_F(TEST_CLIP_BY_VALUE_V2_UT, TEST_BFLOAT16_SCALAR_BOUNDS)
+{
+    vector<DataType> data_types = {DT_BFLOAT16, DT_BFLOAT16, DT_BFLOAT16, DT_BFLOAT16};
+    vector<vector<int64_t>> shapes = {{4}, {}, {}, {4}};
+    Eigen::bfloat16 input0[4] = {
+        Eigen::bfloat16(-3.0f), Eigen::bfloat16(-1.0f), Eigen::bfloat16(1.0f), Eigen::bfloat16(3.0f)};
+    Eigen::bfloat16 mn(-2.0f);
+    Eigen::bfloat16 mx(2.0f);
+    Eigen::bfloat16 expect_output[4] = {
+        Eigen::bfloat16(-2.0f), Eigen::bfloat16(-1.0f), Eigen::bfloat16(1.0f), Eigen::bfloat16(2.0f)};
+    Eigen::bfloat16 output[4];
+    for (int i = 0; i < 4; ++i) output[i] = Eigen::bfloat16(0.0f);
+    vector<void*> datas = {(void*)input0, (void*)&mn, (void*)&mx, (void*)output};
+    CREATE_NODEDEF(shapes, data_types, datas);
+    RUN_KERNEL(node_def, HOST, KERNEL_STATUS_OK);
+    EXPECT_EQ(CompareResult<Eigen::bfloat16>(output, expect_output, 4), true);
+}

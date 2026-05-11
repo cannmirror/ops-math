@@ -9,7 +9,7 @@
  */
 
 /*!
- * \file clip_by_value_v2.cpp
+ * \file clip_by_value_v2_aicpu.h
  * \brief
  */
 
