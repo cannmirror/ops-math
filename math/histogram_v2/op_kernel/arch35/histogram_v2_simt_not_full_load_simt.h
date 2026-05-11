@@ -15,6 +15,8 @@
 #ifndef HISTOGRAM_V2_SIMT_NOT_FULL_LOAD_SIMT_H
 #define HISTOGRAM_V2_SIMT_NOT_FULL_LOAD_SIMT_H
 
+#include "simt_api/asc_simt.h"
+
 namespace HistogramV2SIMT {
 using namespace AscendC;
 
@@ -76,8 +78,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtCleanAtomic(
         return;
     }
 
-    for (int32_t index = static_cast<int32_t>(Simt::GetThreadIdx()); index < clearYDataLength;
-         index += static_cast<int32_t>(Simt::GetThreadNum())) {
+    for (int32_t index = static_cast<int32_t>(threadIdx.x); index < clearYDataLength;
+         index += static_cast<int32_t>(blockDim.x)) {
         int64_t yIndex = clearYIndexBase + index;
         yGmAddr[yIndex] = static_cast<OUT_TYPE>(0);
     }
@@ -93,8 +95,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtComputeAtomic(
         return;
     }
 
-    for (int32_t index = static_cast<int32_t>(Simt::GetThreadIdx()); index < coreDataLength;
-         index += static_cast<int32_t>(Simt::GetThreadNum())) {
+    for (int32_t index = static_cast<int32_t>(threadIdx.x); index < coreDataLength;
+         index += static_cast<int32_t>(blockDim.x)) {
         int64_t xIndex = xIndexBase + index;
         COMPUTE_TYPE value = static_cast<COMPUTE_TYPE>(xGmAddr[xIndex]);
         if (value >= minValue && value <= maxValue) {
@@ -102,7 +104,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtComputeAtomic(
             if (indexBin == bins) {
                 indexBin -= 1;
             }
-            Simt::AtomicAdd(yGmAddr + indexBin, static_cast<OUT_TYPE>(1));
+            asc_atomic_add(yGmAddr + indexBin, static_cast<OUT_TYPE>(1));
         }
     }
 }
@@ -120,14 +122,14 @@ __aicore__ inline void HistogramV2SimtNotFullLoadGmAtomicAdd<X_TYPE, COMPUTE_TYP
         __gm__ OUT_TYPE* yGmAddr = (__gm__ OUT_TYPE*)yGm_.GetPhyAddr();
         __gm__ X_TYPE* xGmAddr = (__gm__ X_TYPE*)xGm_.GetPhyAddr();
 
-        Simt::VF_CALL<SimtCleanAtomic<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, yGmAddr, blockIdx_, this->clearYCoreNum_, clearYIndexBase, clearYDataLength);
+        asc_vf_call<SimtCleanAtomic<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
+            dim3{THREAD_NUM, 1, 1}, yGmAddr, blockIdx_, this->clearYCoreNum_, clearYIndexBase, clearYDataLength);
 #ifndef __CCE_UT_TEST__
         SyncAll();
 #endif
-        Simt::VF_CALL<SimtComputeAtomic<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, xGmAddr, yGmAddr, blockIdx_, needXCoreNum_, xIndexBase, coreDataLength,
-            minValue_, maxValue_, bins_);
+        asc_vf_call<SimtComputeAtomic<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
+            dim3{THREAD_NUM, 1, 1}, xGmAddr, yGmAddr, blockIdx_, needXCoreNum_, xIndexBase, coreDataLength, minValue_,
+            maxValue_, bins_);
     }
 }
 

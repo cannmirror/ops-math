@@ -18,6 +18,7 @@
 
 #include "kernel_operator.h"
 #include "kernel_tiling/kernel_tiling.h"
+#include "simt_api/asc_simt.h"
 
 using namespace AscendC;
 
@@ -150,8 +151,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(BOUND_THREAD_NUM) inline void SimtComputeFor
     int64_t startOffset, int64_t coreFactor, int64_t depth, T3 offValue, T3 onValue, uint64_t factor1,
     uint64_t factorOut1, uint64_t factorOut2, __gm__ T1* inputData, __gm__ T3* outputData)
 {
-    for (int64_t idx = static_cast<int64_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<int64_t>(Simt::GetThreadNum())) {
+    for (int64_t idx = static_cast<int64_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<int64_t>(blockDim.x)) {
         int64_t gmIdx = startOffset + idx;
         int64_t i = gmIdx / factor1;
         int64_t j = gmIdx % factor1;
@@ -168,8 +169,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(BOUND_THREAD_NUM) inline void SimtComputeMix
     int32_t startOffset, int32_t coreFactor, int64_t depth, T3 offValue, T3 onValue, uint64_t factor1,
     uint64_t factorOut1, uint64_t factorOut2, uint32_t m, uint32_t shift, __gm__ T1* inputData, __gm__ T3* outputData)
 {
-    for (uint32_t idx = static_cast<int32_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<int32_t>(Simt::GetThreadNum())) {
+    for (uint32_t idx = static_cast<int32_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<int32_t>(blockDim.x)) {
         int32_t gmIdx = startOffset + idx;
         uint32_t t = __umulhi(gmIdx, m);
         t = t + gmIdx;
@@ -229,11 +230,11 @@ __aicore__ inline void OneHotMix<T1, T2, T3>::Process()
     __gm__ T1* inputData = inputGm.GetPhyAddr(0);
     __gm__ T3* outputData = outputGm.GetPhyAddr(0);
     if (unlikely(endOffset > INT32_MAX)) {
-        Simt::VF_CALL<SimtComputeFor64Mix<T1, T2, T3>>(
+        asc_vf_call<SimtComputeFor64Mix<T1, T2, T3>>(
             threadsPerBlock, startOffset, coreFactor, depth_, offValue_, onValue_, factor1, factorOut1, factorOut2,
             inputData, outputData);
     } else {
-        Simt::VF_CALL<SimtComputeMix<T1, T2, T3>>(
+        asc_vf_call<SimtComputeMix<T1, T2, T3>>(
             threadsPerBlock, static_cast<int32_t>(startOffset), static_cast<int32_t>(coreFactor), depth_, offValue_,
             onValue_, factor1, factorOut1, factorOut2, m_, shift_, inputData, outputData);
     }

@@ -15,6 +15,8 @@
 #ifndef HISTOGRAM_V2_SIMT_H
 #define HISTOGRAM_V2_SIMT_H
 
+#include "simt_api/asc_simt.h"
+
 namespace HistogramV2SIMT {
 using namespace AscendC;
 
@@ -76,8 +78,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtCompute(
     __gm__ X_TYPE* xGmAddr, __ubuf__ OUT_TYPE* yLocalAddr, const int64_t xIndexBase, const int64_t coreDataLength,
     const COMPUTE_TYPE minValue, const COMPUTE_TYPE maxValue, const COMPUTE_TYPE minMaxLength, const int64_t bins)
 {
-    for (int32_t index = static_cast<int32_t>(Simt::GetThreadIdx()); index < coreDataLength;
-         index += static_cast<int32_t>(Simt::GetThreadNum())) {
+    for (int32_t index = static_cast<int32_t>(threadIdx.x); index < coreDataLength;
+         index += static_cast<int32_t>(blockDim.x)) {
         int64_t xIndex = xIndexBase + index;
         COMPUTE_TYPE value = static_cast<COMPUTE_TYPE>(xGmAddr[xIndex]);
         if (value >= minValue && value <= maxValue) {
@@ -85,7 +87,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtCompute(
             if (index == bins) {
                 index -= 1;
             }
-            Simt::AtomicAdd(yLocalAddr + index, static_cast<OUT_TYPE>(1));
+            asc_atomic_add(yLocalAddr + index, static_cast<int32_t>(1));
         }
     }
 }
@@ -131,8 +133,8 @@ __aicore__ inline void HistogramV2SimtFullLoad<X_TYPE, COMPUTE_TYPE, OUT_TYPE>::
             __gm__ X_TYPE* xGmAddr = (__gm__ X_TYPE*)xGm_.GetPhyAddr();
             __ubuf__ OUT_TYPE* yLocalAddr = (__ubuf__ OUT_TYPE*)this->yLocal_.GetPhyAddr();
 
-            Simt::VF_CALL<UbSimtCompute<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
-                Simt::Dim3{THREAD_NUM, 1, 1}, xGmAddr, yLocalAddr, xIndexBase, coreDataLength, minValue, maxValue,
+            asc_vf_call<UbSimtCompute<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
+                dim3{THREAD_NUM, 1, 1}, xGmAddr, yLocalAddr, xIndexBase, coreDataLength, minValue, maxValue,
                 minMaxLength, this->bins_);
 
             event_t eventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_MTE3));

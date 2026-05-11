@@ -15,6 +15,8 @@
 #ifndef HISTOGRAM_V2_SIMT_NOT_FULL_LOAD_H
 #define HISTOGRAM_V2_SIMT_NOT_FULL_LOAD_H
 
+#include "simt_api/asc_simt.h"
+
 namespace HistogramV2SIMT {
 using namespace AscendC;
 
@@ -91,8 +93,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtClean(
         return;
     }
 
-    for (int32_t index = static_cast<int32_t>(Simt::GetThreadIdx()); index < clearYDataLength;
-         index += static_cast<int32_t>(Simt::GetThreadNum())) {
+    for (int32_t index = static_cast<int32_t>(threadIdx.x); index < clearYDataLength;
+         index += static_cast<int32_t>(blockDim.x)) {
         int64_t yIndex = clearYIndexBase + index;
         yGmAddr[yIndex] = static_cast<OUT_TYPE>(0);
     }
@@ -108,8 +110,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtComputeNotFull
         return;
     }
 
-    for (int32_t index = static_cast<int32_t>(Simt::GetThreadIdx()); index < coreDataLength;
-         index += static_cast<int32_t>(Simt::GetThreadNum())) {
+    for (int32_t index = static_cast<int32_t>(threadIdx.x); index < coreDataLength;
+         index += static_cast<int32_t>(blockDim.x)) {
         int64_t xIndex = xIndexBase + index;
         COMPUTE_TYPE value = static_cast<COMPUTE_TYPE>(xGmAddr[xIndex]);
         if (value >= minValue && value <= maxValue) {
@@ -119,7 +121,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtComputeNotFull
             }
             if (ubLoop * ubNumCanUse <= indexBin && indexBin < (ubLoop + 1) * ubNumCanUse) {
                 int64_t indexBinNormal = indexBin - ubLoop * ubNumCanUse;
-                Simt::AtomicAdd(yLocalAddr + indexBinNormal, static_cast<OUT_TYPE>(1));
+                asc_atomic_add(yLocalAddr + indexBinNormal, static_cast<OUT_TYPE>(1));
             }
         }
     }
@@ -136,8 +138,8 @@ __aicore__ inline void HistogramV2SimtNotFullLoad<X_TYPE, COMPUTE_TYPE, OUT_TYPE
         __gm__ OUT_TYPE* yGmAddr = (__gm__ OUT_TYPE*)yGm_.GetPhyAddr();
         __gm__ X_TYPE* xGmAddr = (__gm__ X_TYPE*)xGm_.GetPhyAddr();
 
-        Simt::VF_CALL<SimtClean<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, yGmAddr, blockIdx_, clearYCoreNum_, clearYIndexBase, clearYDataLength);
+        asc_vf_call<SimtClean<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
+            dim3{THREAD_NUM, 1, 1}, yGmAddr, blockIdx_, clearYCoreNum_, clearYIndexBase, clearYDataLength);
 #ifndef __CCE_UT_TEST__
         SyncAll();
 #endif
@@ -170,8 +172,8 @@ __aicore__ inline void HistogramV2SimtNotFullLoad<X_TYPE, COMPUTE_TYPE, OUT_TYPE
         yQue_.EnQue(yLocal_);
         yLocal_ = yQue_.template DeQue<OUT_TYPE>();
         __ubuf__ OUT_TYPE* yLocalAddr = (__ubuf__ OUT_TYPE*)yLocal_.GetPhyAddr();
-        Simt::VF_CALL<UbSimtComputeNotFull<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, xGmAddr, yLocalAddr, blockIdx_, needXCoreNum_, xIndexBase, coreDataLength,
+        asc_vf_call<UbSimtComputeNotFull<X_TYPE, COMPUTE_TYPE, OUT_TYPE>>(
+            dim3{THREAD_NUM, 1, 1}, xGmAddr, yLocalAddr, blockIdx_, needXCoreNum_, xIndexBase, coreDataLength,
             minValue_, maxValue_, bins_, ubLoop, ubNumCanUse_);
         event_t eventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_MTE3));
         SetFlag<HardEvent::V_MTE3>(eventId);

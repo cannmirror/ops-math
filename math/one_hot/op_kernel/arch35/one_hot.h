@@ -18,6 +18,7 @@
 
 #include "kernel_operator.h"
 #include "kernel_tiling/kernel_tiling.h"
+#include "simt_api/asc_simt.h"
 
 using namespace AscendC;
 
@@ -110,8 +111,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(BOUND_THREAD_NUM) inline void SimtComputeFor
     int64_t startOffset, int64_t coreFactor, int64_t depth, T3 offValue, T3 onValue, uint64_t factor1,
     uint64_t factorOut1, uint64_t factorOut2, __gm__ T1* inputData, __gm__ T3* outputData)
 {
-    for (int64_t idx = static_cast<int64_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<int64_t>(Simt::GetThreadNum())) {
+    for (int64_t idx = static_cast<int64_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<int64_t>(blockDim.x)) {
         int64_t gmIdx = startOffset + idx;
         int64_t i = gmIdx / factor1;
         int64_t j = gmIdx % factor1;
@@ -132,16 +133,16 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(BOUND_THREAD_NUM) inline void SimtCompute(
     int32_t startOffset, int32_t coreFactor, int64_t depth, T3 offValue, T3 onValue, uint64_t factor1,
     uint64_t factorOut1, uint64_t factorOut2, uint32_t m, uint32_t shift, __gm__ T1* inputData, __gm__ T3* outputData)
 {
-    for (uint32_t idx = static_cast<int32_t>(Simt::GetThreadIdx<1>()); idx < coreFactor;
-         idx += static_cast<int32_t>(Simt::GetThreadNum<1>())) {
+    for (uint32_t idx = static_cast<int32_t>(threadIdx.y); idx < coreFactor;
+         idx += static_cast<int32_t>(blockDim.y)) {
         int32_t gmIdx = startOffset + idx;
         uint32_t t = __umulhi(gmIdx, m);
         t = t + gmIdx;
         int32_t i = t >> shift;
         int32_t j = gmIdx - i * factor1;
         int64_t dstOffset;
-        for (int64_t axisIdx = static_cast<int64_t>(Simt::GetThreadIdx<0>()); axisIdx < depth;
-             axisIdx += static_cast<int64_t>(Simt::GetThreadNum<0>())) {
+        for (int64_t axisIdx = static_cast<int64_t>(threadIdx.x); axisIdx < depth;
+             axisIdx += static_cast<int64_t>(blockDim.x)) {
             dstOffset = i * factorOut1 + axisIdx * factorOut2 + j;
             outputData[dstOffset] = offValue;
         }
@@ -157,8 +158,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(BOUND_THREAD_NUM) inline void SimtComputeDep
     int32_t startOffset, int32_t coreFactor, int64_t depth, T3 offValue, T3 onValue, uint64_t factor1,
     uint64_t factorOut1, uint64_t factorOut2, uint32_t m, uint32_t shift, __gm__ T1* inputData, __gm__ T3* outputData)
 {
-    for (uint32_t idx = static_cast<int32_t>(Simt::GetThreadIdx<>()); idx < coreFactor;
-         idx += static_cast<int32_t>(Simt::GetThreadNum<>())) {
+    for (uint32_t idx = static_cast<int32_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<int32_t>(blockDim.x)) {
         int32_t gmIdx = startOffset + idx;
         uint32_t t = __umulhi(gmIdx, m);
         t = t + gmIdx;
@@ -194,7 +195,7 @@ __aicore__ inline void OneHot<T1, T2, T3>::Process()
     __gm__ T3* outputData = outputGm.GetPhyAddr(0);
     if (depth_ == 1) {
         auto threadsPerBlock = cce::dim3{static_cast<unsigned int>(THREAD_NUM)};
-        Simt::VF_CALL<SimtComputeDepth<T1, T2, T3>>(
+        asc_vf_call<SimtComputeDepth<T1, T2, T3>>(
             threadsPerBlock, startOffset, coreFactor, depth_, offValue_, onValue_, factor1, factorOut1, factorOut2, m_,
             shift_, inputData, outputData);
     } else {
@@ -207,11 +208,11 @@ __aicore__ inline void OneHot<T1, T2, T3>::Process()
         }
         auto threadsPerBlock = cce::dim3{static_cast<unsigned int>(dimX), static_cast<unsigned int>(dimY)};
         if (unlikely(startOffset > INT32_MAX)) {
-            Simt::VF_CALL<SimtComputeFor64<T1, T2, T3>>(
+            asc_vf_call<SimtComputeFor64<T1, T2, T3>>(
                 threadsPerBlock, startOffset, coreFactor, depth_, offValue_, onValue_, factor1, factorOut1, factorOut2,
                 inputData, outputData);
         } else {
-            Simt::VF_CALL<SimtCompute<T1, T2, T3>>(
+            asc_vf_call<SimtCompute<T1, T2, T3>>(
                 threadsPerBlock, static_cast<int32_t>(startOffset), static_cast<int32_t>(coreFactor), depth_, offValue_,
                 onValue_, factor1, factorOut1, factorOut2, m_, shift_, inputData, outputData);
         }

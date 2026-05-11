@@ -27,6 +27,8 @@
 #include "dynamic_stitch_common.h"
 #include "op_kernel/math_util.h"
 #include "op_kernel/platform_util.h"
+#include "simt_api/asc_simt.h"
+#include "simt_api/device_atomic_functions.h"
 
 namespace DynamicStitch {
 using namespace AscendC;
@@ -96,9 +98,9 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void DeduplicateIndices(G
     __gm__ int32_t *deDuplicateIndices, int64_t startTensorIndex, int64_t endTensorIndex, int64_t startOffset,
     int64_t endOffset, __ubuf__ int64_t *tensorCumsumList)
 {
-    for (int tensorIndex = startTensorIndex + static_cast<int32_t>(Simt::GetThreadIdx<0>());
+    for (int tensorIndex = startTensorIndex + static_cast<int32_t>(threadIdx.x);
          tensorIndex <= endTensorIndex;
-         tensorIndex += static_cast<int32_t>(Simt::GetThreadNum<0>())) {
+         tensorIndex += static_cast<int32_t>(blockDim.x)) {
         __gm__ int32_t *inputTensor = GetTensorSimtAddr<int32_t>(tensorIndex, inTensorsPtr);
         int64_t startIndex = 0;
         int64_t endIndex = tensorCumsumList[tensorIndex + 1] - tensorCumsumList[tensorIndex] - 1;
@@ -109,11 +111,11 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void DeduplicateIndices(G
             endIndex = endOffset;
         }
 
-        for (int32_t index = startIndex + static_cast<int32_t>(Simt::GetThreadIdx<1>()); index <= endIndex;
-             index += static_cast<int32_t>(Simt::GetThreadNum<1>())) {
+        for (int32_t index = startIndex + static_cast<int32_t>(threadIdx.y); index <= endIndex;
+             index += static_cast<int32_t>(blockDim.y)) {
             int32_t dstIndex = inputTensor[index];
             int32_t dstValue = tensorCumsumList[tensorIndex] + index;
-            Simt::AtomicMax(deDuplicateIndices + dstIndex, dstValue);
+            asc_atomic_max(deDuplicateIndices + dstIndex, dstValue);
         }
     }
 }
@@ -121,8 +123,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void DeduplicateIndices(G
 __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void WriteBackIndices(
     __gm__ volatile int32_t *src, __gm__ int32_t *dst, int64_t startIndex, int64_t count, int64_t totalTensorSum)
 {
-    for (int index = static_cast<int32_t>(Simt::GetThreadIdx<0>()); index < count;
-         index += static_cast<int32_t>(Simt::GetThreadNum<0>())) {
+    for (int index = static_cast<int32_t>(threadIdx.x); index < count;
+         index += static_cast<int32_t>(blockDim.x)) {
         int32_t dstValue = index + startIndex;
         int32_t dstIndex = src[dstValue];
         if (dstIndex >= 0 && dstIndex < totalTensorSum) {
@@ -147,7 +149,7 @@ __aicore__ inline void DynamicStitchIndicesDeDuplicate<T>::Process()
         event_t eventIdSToV = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::S_V));
         SetFlag<HardEvent::S_V>(eventIdSToV);
         WaitFlag<HardEvent::S_V>(eventIdSToV);
-        Simt::VF_CALL<DeduplicateIndices>(Simt::Dim3{curTensorNum_, THREAD_NUM / curTensorNum_, 1},
+        asc_vf_call<DeduplicateIndices>(dim3{curTensorNum_, THREAD_NUM / curTensorNum_, 1},
             inTensorsPtr_,
             deDuplicateIndices_,
             startTensorIndex_,
@@ -159,7 +161,7 @@ __aicore__ inline void DynamicStitchIndicesDeDuplicate<T>::Process()
     SyncAll();
 
     if (blockIdx_ < tilingData_->writeBackBlockNum) {
-        Simt::VF_CALL<WriteBackIndices>(Simt::Dim3{THREAD_NUM, 1, 1},
+        asc_vf_call<WriteBackIndices>(dim3{THREAD_NUM, 1, 1},
             deDuplicateIndices_,
             writeBackIndices_,
             blockIdx_ * tilingData_->writeBackBlockSize,

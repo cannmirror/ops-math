@@ -20,6 +20,8 @@
 #ifndef HISTOGRAM_V2_SIMT_FULL_LOAD_DET_FP32OUT_H
 #define HISTOGRAM_V2_SIMT_FULL_LOAD_DET_FP32OUT_H
 
+#include "simt_api/asc_simt.h"
+
 namespace HistogramV2SIMT {
 using namespace AscendC;
 
@@ -59,8 +61,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtComputeDetFull
     __gm__ X_TYPE* xGmAddr, __ubuf__ int32_t* yLocalIntAddr, const int64_t xIndexBase, const int64_t coreDataLength,
     const COMPUTE_TYPE minValue, const COMPUTE_TYPE maxValue, const COMPUTE_TYPE minMaxLength, const int64_t bins)
 {
-    for (int32_t index = static_cast<int32_t>(Simt::GetThreadIdx()); index < coreDataLength;
-         index += static_cast<int32_t>(Simt::GetThreadNum())) {
+    for (int32_t index = static_cast<int32_t>(threadIdx.x); index < coreDataLength;
+         index += static_cast<int32_t>(blockDim.x)) {
         int64_t xIndex = xIndexBase + index;
         COMPUTE_TYPE value = static_cast<COMPUTE_TYPE>(xGmAddr[xIndex]);
         if (value >= minValue && value <= maxValue) {
@@ -68,7 +70,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtComputeDetFull
             if (indexBin == bins) {
                 indexBin -= 1;
             }
-            Simt::AtomicAdd(yLocalIntAddr + indexBin, static_cast<int32_t>(1));
+            asc_atomic_add(yLocalIntAddr + indexBin, static_cast<int32_t>(1));
         }
     }
 }
@@ -76,8 +78,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void UbSimtComputeDetFull
 __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void GmCastDetFullFp32Out(
     __gm__ int32_t* yGmIntAddr, __gm__ float* yGmFloatAddr, const int64_t clearYIndexBase, const int64_t clearYDataLength)
 {
-    for (int32_t index = static_cast<int32_t>(Simt::GetThreadIdx()); index < clearYDataLength;
-         index += static_cast<int32_t>(Simt::GetThreadNum())) {
+    for (int32_t index = static_cast<int32_t>(threadIdx.x); index < clearYDataLength;
+         index += static_cast<int32_t>(blockDim.x)) {
         int64_t yIndex = clearYIndexBase + index;
         int32_t yValue = yGmIntAddr[yIndex];
         yGmFloatAddr[yIndex] = static_cast<float>(yValue);
@@ -158,8 +160,8 @@ __aicore__ inline void HistogramV2SimtFullLoadDetFp32Out<X_TYPE, COMPUTE_TYPE>::
         __gm__ X_TYPE* xGmAddr = (__gm__ X_TYPE*)xGm_.GetPhyAddr();
         __ubuf__ int32_t* yLocalIntAddr = (__ubuf__ int32_t*)yLocalInt.GetPhyAddr();
 
-        Simt::VF_CALL<UbSimtComputeDetFull<X_TYPE, COMPUTE_TYPE>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, xGmAddr, yLocalIntAddr, xIndexBaseDet, coreDataLengthDet, minValue, maxValue,
+        asc_vf_call<UbSimtComputeDetFull<X_TYPE, COMPUTE_TYPE>>(
+            dim3{THREAD_NUM, 1, 1}, xGmAddr, yLocalIntAddr, xIndexBaseDet, coreDataLengthDet, minValue, maxValue,
             minMaxLength, binsDet_);
 
         // Wait for SIMT VF compute to finish before DMA write
@@ -184,8 +186,8 @@ __aicore__ inline void HistogramV2SimtFullLoadDetFp32Out<X_TYPE, COMPUTE_TYPE>::
     if (blockIdx_ < clearYCoreNum_) {
         __gm__ int32_t* yGmIntAddr = (__gm__ int32_t*)yGmInt_.GetPhyAddr();
         __gm__ float* yGmFloatAddr = (__gm__ float*)yGmFloat_.GetPhyAddr();
-        Simt::VF_CALL<GmCastDetFullFp32Out>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, yGmIntAddr, yGmFloatAddr, clearYIndexBaseDeter, clearYDataLengthDeter);
+        asc_vf_call<GmCastDetFullFp32Out>(
+            dim3{THREAD_NUM, 1, 1}, yGmIntAddr, yGmFloatAddr, clearYIndexBaseDeter, clearYDataLengthDeter);
     }
 }
 
