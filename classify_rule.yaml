@@ -370,9 +370,15 @@ VC6@ops-math:
         # stateless_bernoulli
         - ops/ops-math/random/stateless_bernoulli/op_host/
         - ops/ops-math/random/stateless_bernoulli/op_kernel/
+        - ops/ops-math/random/stateless_bernoulli/op_graph/fusion_pass/
+        # random_uniform_v2
+        - ops/ops-math/random/random_uniform_v2/op_graph/fusion_pass/
+        # random_standard_normal_v2
+        - ops/ops-math/random/random_standard_normal_v2/op_graph/fusion_pass/
         # drop_out_v3
         - ops/ops-math/random/drop_out_v3/op_host/
         - ops/ops-math/random/drop_out_v3/op_kernel/
+        - ops/ops-math/random/drop_out_v3/op_graph/fusion_pass/
         # drop_out_do_mask
         - ops/ops-math/random/drop_out_do_mask/op_host/
         - ops/ops-math/random/drop_out_do_mask/op_kernel/
@@ -388,6 +394,8 @@ VC6@ops-math:
         - ops/ops-math/random/stateless_random_normal_v3/
         - ops/ops-math/random/stateless_random_normal_v3/op_host/
         - ops/ops-math/random/stateless_random_normal_v3/op_kernel/
+        # truncated_normal_v2   
+        - ops/ops-math/random/truncated_normal_v2/op_graph/fusion_pass/          
         # stateless_random_uniform_v2
         - ops/ops-math/random/stateless_random_uniform_v2/op_host/
         - ops/ops-math/random/stateless_random_uniform_v2/op_kernel/
@@ -404,6 +412,7 @@ VC6@ops-math:
         # triu
         - ops/ops-math/conversion/triu/op_host/
         - ops/ops-math/conversion/triu/op_kernel/
+        - ops/ops-math/conversion/triu/op_graph/fusion_pass/
         # pack
         - ops/ops-math/conversion/pack/op_host/
         - ops/ops-math/conversion/pack/op_kernel/
