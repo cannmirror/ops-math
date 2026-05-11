@@ -33,7 +33,6 @@ static constexpr uint64_t EXPANSION_FACTOR = 2;
 static constexpr uint64_t HALF_FACTOR = 2;
 
 static constexpr uint64_t SIMT_BRANCH_SIZE = 48 * 1024;
-static constexpr uint64_t OUTSHAPE_LASTTWODIM_SIZE_BOUND = 256;
 static constexpr uint64_t UB_MAX_DATA_SIZE_PER_BUFFER = 64 * 1024;
 static constexpr int64_t MIN_PER_UB_SIZE = 4096;    // Bytes
 static constexpr double MIN_USED_CORES_RATIO = 0.8; // 80%;
@@ -428,13 +427,6 @@ ge::graphStatus PadV3GradACTiling::ComputeAfterPaddingsAndStrides()
         tilingData_->outStride[i] = outShapeSize_;
         outShapeSize_ *= tilingData_->outShape[i];
     }
-
-    outShapeSizeLastTwoDim_ = 1UL;
-    if (dimNum_ >= 2){
-        outShapeSizeLastTwoDim_ = tilingData_->outShape[dimNum_ - 2] * tilingData_->outShape[dimNum_ - 1] * FP32_SIZE;
-    }else{
-        outShapeSizeLastTwoDim_ = tilingData_->outShape[dimNum_ - 1] * FP32_SIZE;
-    }
     return ge::GRAPH_SUCCESS;
 }
 
@@ -597,7 +589,7 @@ ge::graphStatus PadV3GradACTiling::DoTilingModeMirror()
     if (isEmptyTensor_) {
         EmptyTensorCollapse();
         DoTilingWithSIMTMirror();
-    } else if (isPadAllPositive_ && outShapeSizeLastTwoDim_ >= OUTSHAPE_LASTTWODIM_SIZE_BOUND) {
+    } else if (isPadAllPositive_) {
         // simd
         if (inShapeSize_ * EXPANSION_FACTOR + 1 > INT32_MAX || outShapeSize_ * EXPANSION_FACTOR + 1 > INT32_MAX) {
             // simd normal 目前走simt实现，需要isBigShape_

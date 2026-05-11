@@ -16,7 +16,6 @@
  * 1. 输入尾轴小：outShape[-1] * sizeof(dtype) <= 128B
  * 2. 维度小于等于五维
  * 3. UB 切分轴为 -2 到 -4（即 UB_AXES = 2/3/4）
- * 4. 输出最后两维大于256B
  *
  * 核心思想：
  * - 使用 Gather 按索引读取数据，累加后写回
@@ -253,6 +252,13 @@ private:
         __local_mem__ GatherRangeType* rightIdxAddr, __local_mem__ GatherRangeType* midOffsetAddr,
         __local_mem__ GatherRangeType* leftOffsetAddr, __local_mem__ GatherRangeType* rightOffsetAddr);
 
+    // 跨 C 通道生成 W 轴索引
+    __aicore__ inline void GenerateCrossChannelWAxisIndices(
+        uint32_t totalRows, uint16_t outW, uint16_t outH, int64_t width, uint64_t hwSize,
+        int64_t leftPadW, int64_t rightPadW, int64_t leftPadH,
+        __local_mem__ GatherRangeType* midIdxAddr, __local_mem__ GatherRangeType* leftIdxAddr,
+        __local_mem__ GatherRangeType* rightIdxAddr);
+
     /**
      * @brief 折叠 H 轴的 pad 数据（GatherAddScatter 方式）
      *
@@ -281,7 +287,9 @@ private:
      */
     __aicore__ inline void FoldHAxisPad(
         int64_t factor, uint64_t hwSize, int64_t width, int64_t padCount, bool isLeftPad,
-        int64_t leftPadH, int64_t outH, __local_mem__ PromoteDataT* midAddr,
+        int64_t leftPadH, int64_t outH,
+        int64_t nFactor, uint64_t nStride,
+        __local_mem__ PromoteDataT* baseAddr,
         __local_mem__ GatherRangeType* srcIdxAddr, __local_mem__ GatherRangeType* dstIdxAddr);
 
     /**
@@ -310,7 +318,8 @@ private:
      */
     __aicore__ inline void FoldCAxisPad(
         uint64_t hwSize, int64_t padCount, bool isLeftPad, int64_t leftPadC, int64_t outC,
-        __local_mem__ PromoteDataT* midAddr,
+        int64_t factor, uint64_t nStride,
+        __local_mem__ PromoteDataT* baseAddr,
         __local_mem__ GatherRangeType* srcIdxAddr, __local_mem__ GatherRangeType* dstIdxAddr);
 
     // 输出
@@ -1378,69 +1387,262 @@ __aicore__ inline void PadV3GradGather<T,modeName>::GenerateFoldWAxisIndices(
     __local_mem__ GatherRangeType* rightIdxAddr, __local_mem__ GatherRangeType* midOffsetAddr,
     __local_mem__ GatherRangeType* leftOffsetAddr, __local_mem__ GatherRangeType* rightOffsetAddr)
 {
-    for (uint16_t r = 0; r < rowsPerBatch; r++) {
-        uint64_t rowOffset = r * width + ZERO_PAD_CNT;
-        for (uint16_t col = 0; col < innerWidth; col++) {
-            uint32_t idx = r * innerWidth + col;
+    __VEC_SCOPE__
+    {
+        uint32_t vLen = rowsPerBatch * innerWidth;
+        AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
 
-            // midIdx: 中间区域索引
-            midIdxAddr[idx] = static_cast<GatherRangeType>(rowOffset + leftPadW + col);
-            midOffsetAddr[idx] = rowWidthOffset;
+        // x = [0, 1, ..., vLen-1]，批内线性位置
+        AscendC::MicroAPI::RegTensor<GatherRangeType> xReg;
+        AscendC::MicroAPI::Arange(xReg, static_cast<GatherRangeType>(0));
 
-            // leftIdx: 左 pad 映射位置，其他位置为 0
-            // Reflect: col > 0 && col <= leftPadW 时有映射（M[1]到M[leftPadW]接收left pad）
-            // Symmetric: col < leftPadW 时有映射（M[0]到M[leftPadW-1]接收left pad）
-            bool hasLeftMapping = false;
-            if constexpr (modeName == 2) {  
-                // Reflect
-                hasLeftMapping = (leftPadW > 0 && col > 0 && col <= leftPadW);
-            } else {  
-                // Symmetric
-                hasLeftMapping = (leftPadW > 0 && col < leftPadW);
-            }
+        // row = x / innerWidth，col = x % innerWidth（始终用 Div，避免运行时分支）
+        AscendC::MicroAPI::RegTensor<GatherRangeType> rowReg, colReg, tmpReg;
+        AscendC::MicroAPI::RegTensor<GatherRangeType> divWidthReg;
+        AscendC::MicroAPI::Duplicate(divWidthReg, static_cast<GatherRangeType>(innerWidth), mask);
+        AscendC::MicroAPI::Div(rowReg, xReg, divWidthReg, mask);
+        AscendC::MicroAPI::Muls(tmpReg, rowReg, static_cast<GatherRangeType>(innerWidth), mask);
+        AscendC::MicroAPI::Sub(colReg, xReg, tmpReg, mask);
 
-            if (hasLeftMapping) {
-                if constexpr (modeName == 2) {
-                    // reflect: col=1 映射到 leftPadW-1 位置的 left pad 值
-                    // 公式: rowOffset + leftPadW - col
-                    leftIdxAddr[idx] = static_cast<GatherRangeType>(rowOffset + leftPadW - col);
-                } else {
-                    // symmetric: col=0 映射到 leftPadW-1 位置的 left pad 值
-                    // 公式: rowOffset + leftPadW - 1 - col
-                    leftIdxAddr[idx] = static_cast<GatherRangeType>(rowOffset + leftPadW - 1 - col);
-                }
-                leftOffsetAddr[idx] = rowWidthOffset;
-            } else {
-                leftIdxAddr[idx] = 0;      // 指向 ZERO_PAD 区域
-                leftOffsetAddr[idx] = 0;   // 偏移为 0，保持指向 ZERO_PAD
-            }
+        // chanHBaseReg = row * width + (ZERO_PAD_CNT + leftPadW)
+        // 三个索引的公共基：midIdx = chanHBase + col，leftIdx/rightIdx 从此派生，
+        // 避免重复计算 row * width。
+        AscendC::MicroAPI::RegTensor<GatherRangeType> chanHBaseReg;
+        AscendC::MicroAPI::Muls(chanHBaseReg, rowReg, static_cast<GatherRangeType>(width), mask);
+        AscendC::MicroAPI::RegTensor<GatherRangeType> constBaseReg;
+        AscendC::MicroAPI::Duplicate(constBaseReg, static_cast<GatherRangeType>(ZERO_PAD_CNT + leftPadW), mask);
+        AscendC::MicroAPI::Add(chanHBaseReg, chanHBaseReg, constBaseReg, mask);
 
-            // rightIdx: 右 pad 映射位置，其他位置为 0
-            // Reflect: col >= innerWidth - rightPadW - 1 && col < innerWidth - 1 时有映射
-            // Symmetric: col >= innerWidth - rightPadW 时有映射
-            bool hasRightMapping = false;
-            if constexpr (modeName == 2) {  
-                // Reflect
-                hasRightMapping = (rightPadW > 0 && col >= innerWidth - rightPadW - 1 && col < innerWidth - 1);
-            } else {  
-                // Symmetric
-                hasRightMapping = (rightPadW > 0 && col >= innerWidth - rightPadW);
-            }
+        // ===== midIdx = chanHBase + col（恒有效）=====
+        AscendC::MicroAPI::RegTensor<GatherRangeType> midIdxReg;
+        AscendC::MicroAPI::Add(midIdxReg, chanHBaseReg, colReg, mask);
+        AscendC::MicroAPI::DataCopy(midIdxAddr, midIdxReg, mask);
 
-            if (hasRightMapping) {
-                uint32_t rightCol;
-                if constexpr (modeName == 2) {
-                    rightCol = col - (innerWidth - rightPadW - 1);
-                } else {
-                    rightCol = col - (innerWidth - rightPadW);
-                }
-                rightIdxAddr[idx] = static_cast<GatherRangeType>(rowOffset + leftPadW + innerWidth + rightPadW - 1 - rightCol);
-                rightOffsetAddr[idx] = rowWidthOffset;
-            } else {
-                rightIdxAddr[idx] = 0;
-                rightOffsetAddr[idx] = 0;
-            }
+        // ===== leftIdx =====
+        // Reflect:   leftIdx = chanHBase - col，有效 col ∈ [1, leftPadW]
+        // Symmetric: leftIdx = chanHBase - 1 - col，有效 col ∈ [0, leftPadW-1]
+        // leftPadW=0 时：两个 Compare 联合清零全部位置，效果等价于 Duplicate(0)，
+        //              无需单独处理 leftPadW==0 分支。
+        AscendC::MicroAPI::RegTensor<GatherRangeType> leftIdxReg;
+        if constexpr (IS_REFLECT) {
+            AscendC::MicroAPI::Sub(leftIdxReg, chanHBaseReg, colReg, mask);
+            // 清零 col < 1（col == 0）
+            AscendC::MicroAPI::RegTensor<GatherRangeType> oneReg;
+            AscendC::MicroAPI::Duplicate(oneReg, static_cast<GatherRangeType>(1), mask);
+            AscendC::MicroAPI::MaskReg colLt1Mask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colLt1Mask, oneReg, colReg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(leftIdxReg, static_cast<GatherRangeType>(0), colLt1Mask);
+            // 清零 col > leftPadW（leftPadW=0 时 GT(col,0) 清零所有 col>0，与上行联合清零全部）
+            AscendC::MicroAPI::RegTensor<GatherRangeType> leftPWReg;
+            AscendC::MicroAPI::Duplicate(leftPWReg, static_cast<GatherRangeType>(leftPadW), mask);
+            AscendC::MicroAPI::MaskReg colGtLPWMask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colGtLPWMask, colReg, leftPWReg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(leftIdxReg, static_cast<GatherRangeType>(0), colGtLPWMask);
+        } else {
+            // chanHBase - col - 1
+            AscendC::MicroAPI::Sub(leftIdxReg, chanHBaseReg, colReg, mask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> oneReg;
+            AscendC::MicroAPI::Duplicate(oneReg, static_cast<GatherRangeType>(1), mask);
+            AscendC::MicroAPI::Sub(leftIdxReg, leftIdxReg, oneReg, mask);
+            // 清零 col > leftPadW-1（leftPadW=0 时值为 -1，GT 对所有 col≥0 为真，全部清零）
+            AscendC::MicroAPI::RegTensor<GatherRangeType> lpwM1Reg;
+            AscendC::MicroAPI::Duplicate(lpwM1Reg, static_cast<GatherRangeType>(leftPadW - 1), mask);
+            AscendC::MicroAPI::MaskReg colGeLPWMask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colGeLPWMask, colReg, lpwM1Reg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(leftIdxReg, static_cast<GatherRangeType>(0), colGeLPWMask);
         }
+        AscendC::MicroAPI::DataCopy(leftIdxAddr, leftIdxReg, mask);
+
+        // ===== rightIdx =====
+        // Reflect:   rightIdx = chanHBase + (2*innerWidth-2) - col，有效 col ∈ [innerWidth-rightPadW-1, innerWidth-2]
+        // Symmetric: rightIdx = chanHBase + (2*innerWidth-1) - col，有效 col ∈ [innerWidth-rightPadW, innerWidth-1]
+        // rightPadW=0 时：Compare 条件覆盖全部位置，全部清零，无需单独分支。
+        AscendC::MicroAPI::RegTensor<GatherRangeType> rightIdxReg;
+        if constexpr (IS_REFLECT) {
+            AscendC::MicroAPI::RegTensor<GatherRangeType> rightConstReg;
+            AscendC::MicroAPI::Duplicate(rightConstReg,
+                static_cast<GatherRangeType>(2 * static_cast<int64_t>(innerWidth) - 2), mask);
+            AscendC::MicroAPI::Add(rightIdxReg, chanHBaseReg, rightConstReg, mask);
+            AscendC::MicroAPI::Sub(rightIdxReg, rightIdxReg, colReg, mask);
+            // 清零 col < innerWidth - rightPadW - 1
+            AscendC::MicroAPI::RegTensor<GatherRangeType> lowBoundReg;
+            AscendC::MicroAPI::Duplicate(lowBoundReg,
+                static_cast<GatherRangeType>(static_cast<int64_t>(innerWidth) - rightPadW - 1), mask);
+            AscendC::MicroAPI::MaskReg colLtLowMask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colLtLowMask, lowBoundReg, colReg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(rightIdxReg, static_cast<GatherRangeType>(0), colLtLowMask);
+            // 清零 col > innerWidth - 2
+            AscendC::MicroAPI::RegTensor<GatherRangeType> highM1Reg;
+            AscendC::MicroAPI::Duplicate(highM1Reg,
+                static_cast<GatherRangeType>(static_cast<int64_t>(innerWidth) - 2), mask);
+            AscendC::MicroAPI::MaskReg colGtHighMask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colGtHighMask, colReg, highM1Reg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(rightIdxReg, static_cast<GatherRangeType>(0), colGtHighMask);
+        } else {
+            AscendC::MicroAPI::RegTensor<GatherRangeType> rightConstReg;
+            AscendC::MicroAPI::Duplicate(rightConstReg,
+                static_cast<GatherRangeType>(2 * static_cast<int64_t>(innerWidth) - 1), mask);
+            AscendC::MicroAPI::Add(rightIdxReg, chanHBaseReg, rightConstReg, mask);
+            AscendC::MicroAPI::Sub(rightIdxReg, rightIdxReg, colReg, mask);
+            // 清零 col < innerWidth - rightPadW（rightPadW=0 时为 innerWidth，GT 对全部 col 为真，全部清零）
+            AscendC::MicroAPI::RegTensor<GatherRangeType> lowBound2Reg;
+            AscendC::MicroAPI::Duplicate(lowBound2Reg,
+                static_cast<GatherRangeType>(static_cast<int64_t>(innerWidth) - rightPadW), mask);
+            AscendC::MicroAPI::MaskReg colLtLow2Mask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colLtLow2Mask, lowBound2Reg, colReg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(rightIdxReg, static_cast<GatherRangeType>(0), colLtLow2Mask);
+        }
+        AscendC::MicroAPI::DataCopy(rightIdxAddr, rightIdxReg, mask);
+
+        // ===== 偏移数组 =====
+        // midOffset: 所有位置均为 rowWidthOffset（mid 索引始终有效）
+        AscendC::MicroAPI::RegTensor<GatherRangeType> midOffsetReg;
+        AscendC::MicroAPI::Duplicate(midOffsetReg, static_cast<GatherRangeType>(rowWidthOffset), mask);
+        AscendC::MicroAPI::DataCopy(midOffsetAddr, midOffsetReg, mask);
+
+        // leftOffset: 有效位置（leftIdx > 0）为 rowWidthOffset，ZERO_PAD 位置（leftIdx == 0）为 0
+        AscendC::MicroAPI::RegTensor<GatherRangeType> zeroReg;
+        AscendC::MicroAPI::Duplicate(zeroReg, static_cast<GatherRangeType>(0), mask);
+        AscendC::MicroAPI::RegTensor<GatherRangeType> leftOffsetReg;
+        AscendC::MicroAPI::Duplicate(leftOffsetReg, static_cast<GatherRangeType>(0), mask);
+        AscendC::MicroAPI::MaskReg leftOffMask;
+        AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(leftOffMask, leftIdxReg, zeroReg, mask);
+        AscendC::MicroAPI::Duplicate(leftOffsetReg, static_cast<GatherRangeType>(rowWidthOffset), leftOffMask);
+        AscendC::MicroAPI::DataCopy(leftOffsetAddr, leftOffsetReg, mask);
+
+        // rightOffset: 有效位置（rightIdx > 0）为 rowWidthOffset，ZERO_PAD 位置为 0
+        AscendC::MicroAPI::RegTensor<GatherRangeType> rightOffsetReg;
+        AscendC::MicroAPI::Duplicate(rightOffsetReg, static_cast<GatherRangeType>(0), mask);
+        AscendC::MicroAPI::MaskReg rightOffMask;
+        AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(rightOffMask, rightIdxReg, zeroReg, mask);
+        AscendC::MicroAPI::Duplicate(rightOffsetReg, static_cast<GatherRangeType>(rowWidthOffset), rightOffMask);
+        AscendC::MicroAPI::DataCopy(rightOffsetAddr, rightOffsetReg, mask);
+    }
+}
+
+// ========== GenerateCrossChannelWAxisIndices 实现 ==========
+/**
+ * @brief 跨 C 通道生成 W 轴折叠索引（VF 实现）
+ *
+ * 对 totalRows 行（可跨多个 C 通道）的每列生成 mid/left/right 三组索引。
+ * 批内位置 x = globalRow * outW + col，其中：
+ *   globalRow = c * outH + r（c 为相对 C 通道号，r 为 H 行号）
+ *
+ * chanHBase = c * hwSize + (leftPadH + r) * width + ZERO_PAD_CNT + leftPadW
+ * midIdx    = chanHBase + col
+ * leftIdx   = chanHBase - col [- 1]，有效范围外清零
+ * rightIdx  = chanHBase + (2*outW-2 or 2*outW-1) - col，有效范围外清零
+ */
+template <typename T, uint8_t modeName>
+__aicore__ inline void PadV3GradGather<T,modeName>::GenerateCrossChannelWAxisIndices(
+    uint32_t totalRows, uint16_t outW, uint16_t outH, int64_t width, uint64_t hwSize,
+    int64_t leftPadW, int64_t rightPadW, int64_t leftPadH,
+    __local_mem__ GatherRangeType* midIdxAddr, __local_mem__ GatherRangeType* leftIdxAddr,
+    __local_mem__ GatherRangeType* rightIdxAddr)
+{
+    __VEC_SCOPE__
+    {
+        uint32_t vLen = totalRows * static_cast<uint32_t>(outW);
+        AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
+
+        // x = [0, 1, ..., vLen-1]
+        AscendC::MicroAPI::RegTensor<GatherRangeType> xReg;
+        AscendC::MicroAPI::Arange(xReg, static_cast<GatherRangeType>(0));
+
+        // 第一层分解：globalRow = x / outW，col = x % outW
+        AscendC::MicroAPI::RegTensor<GatherRangeType> globalRowReg, colReg, tmpReg;
+        AscendC::MicroAPI::RegTensor<GatherRangeType> outWReg;
+        AscendC::MicroAPI::Duplicate(outWReg, static_cast<GatherRangeType>(outW), mask);
+        AscendC::MicroAPI::Div(globalRowReg, xReg, outWReg, mask);
+        AscendC::MicroAPI::Muls(tmpReg, globalRowReg, static_cast<GatherRangeType>(outW), mask);
+        AscendC::MicroAPI::Sub(colReg, xReg, tmpReg, mask);
+
+        // 第二层分解：c = globalRow / outH，r = globalRow % outH
+        AscendC::MicroAPI::RegTensor<GatherRangeType> cReg, rReg;
+        AscendC::MicroAPI::RegTensor<GatherRangeType> outHReg;
+        AscendC::MicroAPI::Duplicate(outHReg, static_cast<GatherRangeType>(outH), mask);
+        AscendC::MicroAPI::Div(cReg, globalRowReg, outHReg, mask);
+        AscendC::MicroAPI::Muls(tmpReg, cReg, static_cast<GatherRangeType>(outH), mask);
+        AscendC::MicroAPI::Sub(rReg, globalRowReg, tmpReg, mask);
+
+        // chanHBase = c * hwSize + (leftPadH + r) * width + ZERO_PAD_CNT + leftPadW
+        AscendC::MicroAPI::RegTensor<GatherRangeType> chanHBaseReg;
+        AscendC::MicroAPI::Muls(chanHBaseReg, cReg, static_cast<GatherRangeType>(hwSize), mask);
+        AscendC::MicroAPI::Muls(tmpReg, rReg, static_cast<GatherRangeType>(width), mask);
+        AscendC::MicroAPI::Add(chanHBaseReg, chanHBaseReg, tmpReg, mask);
+        AscendC::MicroAPI::RegTensor<GatherRangeType> constBaseReg;
+        AscendC::MicroAPI::Duplicate(constBaseReg,
+            static_cast<GatherRangeType>(leftPadH * width + ZERO_PAD_CNT + leftPadW), mask);
+        AscendC::MicroAPI::Add(chanHBaseReg, chanHBaseReg, constBaseReg, mask);
+
+        // ===== midIdx = chanHBase + col =====
+        AscendC::MicroAPI::RegTensor<GatherRangeType> midIdxReg;
+        AscendC::MicroAPI::Add(midIdxReg, chanHBaseReg, colReg, mask);
+        AscendC::MicroAPI::DataCopy(midIdxAddr, midIdxReg, mask);
+
+        // ===== leftIdx（与 GenerateFoldWAxisIndices 相同的清零逻辑）=====
+        // 注意：清零时必须使用 MERGING 模式，仅将指定位置置 0，保留其余有效索引
+        AscendC::MicroAPI::RegTensor<GatherRangeType> leftIdxReg;
+        if constexpr (IS_REFLECT) {
+            AscendC::MicroAPI::Sub(leftIdxReg, chanHBaseReg, colReg, mask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> oneReg;
+            AscendC::MicroAPI::Duplicate(oneReg, static_cast<GatherRangeType>(1), mask);
+            AscendC::MicroAPI::MaskReg colLt1Mask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colLt1Mask, oneReg, colReg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(leftIdxReg, static_cast<GatherRangeType>(0), colLt1Mask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> leftPWReg;
+            AscendC::MicroAPI::Duplicate(leftPWReg, static_cast<GatherRangeType>(leftPadW), mask);
+            AscendC::MicroAPI::MaskReg colGtLPWMask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colGtLPWMask, colReg, leftPWReg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(leftIdxReg, static_cast<GatherRangeType>(0), colGtLPWMask);
+        } else {
+            AscendC::MicroAPI::Sub(leftIdxReg, chanHBaseReg, colReg, mask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> oneReg;
+            AscendC::MicroAPI::Duplicate(oneReg, static_cast<GatherRangeType>(1), mask);
+            AscendC::MicroAPI::Sub(leftIdxReg, leftIdxReg, oneReg, mask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> lpwM1Reg;
+            AscendC::MicroAPI::Duplicate(lpwM1Reg, static_cast<GatherRangeType>(leftPadW - 1), mask);
+            AscendC::MicroAPI::MaskReg colGeLPWMask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colGeLPWMask, colReg, lpwM1Reg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(leftIdxReg, static_cast<GatherRangeType>(0), colGeLPWMask);
+        }
+        AscendC::MicroAPI::DataCopy(leftIdxAddr, leftIdxReg, mask);
+
+        // ===== rightIdx（与 GenerateFoldWAxisIndices 相同的清零逻辑）=====
+        // 注意：清零时必须使用 MERGING 模式，仅将指定位置置 0，保留其余有效索引
+        AscendC::MicroAPI::RegTensor<GatherRangeType> rightIdxReg;
+        if constexpr (IS_REFLECT) {
+            AscendC::MicroAPI::RegTensor<GatherRangeType> rightConstReg;
+            AscendC::MicroAPI::Duplicate(rightConstReg,
+                static_cast<GatherRangeType>(2 * static_cast<int64_t>(outW) - 2), mask);
+            AscendC::MicroAPI::Add(rightIdxReg, chanHBaseReg, rightConstReg, mask);
+            AscendC::MicroAPI::Sub(rightIdxReg, rightIdxReg, colReg, mask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> lowBoundReg;
+            AscendC::MicroAPI::Duplicate(lowBoundReg,
+                static_cast<GatherRangeType>(static_cast<int64_t>(outW) - rightPadW - 1), mask);
+            AscendC::MicroAPI::MaskReg colLtLowMask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colLtLowMask, lowBoundReg, colReg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(rightIdxReg, static_cast<GatherRangeType>(0), colLtLowMask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> highM1Reg;
+            AscendC::MicroAPI::Duplicate(highM1Reg,
+                static_cast<GatherRangeType>(static_cast<int64_t>(outW) - 2), mask);
+            AscendC::MicroAPI::MaskReg colGtHighMask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colGtHighMask, colReg, highM1Reg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(rightIdxReg, static_cast<GatherRangeType>(0), colGtHighMask);
+        } else {
+            AscendC::MicroAPI::RegTensor<GatherRangeType> rightConstReg;
+            AscendC::MicroAPI::Duplicate(rightConstReg,
+                static_cast<GatherRangeType>(2 * static_cast<int64_t>(outW) - 1), mask);
+            AscendC::MicroAPI::Add(rightIdxReg, chanHBaseReg, rightConstReg, mask);
+            AscendC::MicroAPI::Sub(rightIdxReg, rightIdxReg, colReg, mask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> lowBound2Reg;
+            AscendC::MicroAPI::Duplicate(lowBound2Reg,
+                static_cast<GatherRangeType>(static_cast<int64_t>(outW) - rightPadW), mask);
+            AscendC::MicroAPI::MaskReg colLtLow2Mask;
+            AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(colLtLow2Mask, lowBound2Reg, colReg, mask);
+            AscendC::MicroAPI::Duplicate<GatherRangeType, MicroAPI::MaskMergeMode::MERGING, GatherRangeType>(rightIdxReg, static_cast<GatherRangeType>(0), colLtLow2Mask);
+        }
+        AscendC::MicroAPI::DataCopy(rightIdxAddr, rightIdxReg, mask);
     }
 }
 
@@ -1570,154 +1772,228 @@ __aicore__ inline void PadV3GradGather<T,modeName>::GenerateWAxisIndices(
 template <typename T, uint8_t modeName>
 __aicore__ inline void PadV3GradGather<T,modeName>::FoldHAxisPad(
     int64_t factor, uint64_t hwSize, int64_t width, int64_t padCount, bool isLeftPad,
-    int64_t leftPadH, int64_t outH, __local_mem__ PromoteDataT* midAddr,
+    int64_t leftPadH, int64_t outH,
+    int64_t nFactor, uint64_t nStride,
+    __local_mem__ PromoteDataT* baseAddr,
     __local_mem__ GatherRangeType* srcIdxAddr, __local_mem__ GatherRangeType* dstIdxAddr)
 {
-    if (padCount <= 0) {
+    if (padCount <= 0 || nFactor <= 0) {
         return;
     }
 
-    int64_t rowsPerVF = VL_RANGE_CNT / width;
-    if (rowsPerVF < 1) rowsPerVF = 1;
+    // elemPerN: 每个 N 贡献的元素数（factor 个 C 通道 × width 个 W 列）
+    int64_t elemPerN = factor * width;
 
-    const int64_t batchStep = rowsPerVF * width;
+    // ===== 优化路径：N 轴批处理 =====
+    // 条件：有多个 N，且每个 N 的元素数 ≤ VL_RANGE_CNT（即一次 VF 可处理多个 N）
+    if (nFactor > 1 && elemPerN <= static_cast<int64_t>(VL_RANGE_CNT)) {
+        int64_t nPerVF = static_cast<int64_t>(VL_RANGE_CNT) / elemPerN;
+        if (nPerVF < 1) nPerVF = 1;
 
-    for (int64_t c = 0; c < factor; ++c) {
-        const int64_t matrixOffset = c * static_cast<int64_t>(hwSize);
-        int64_t remainRows = padCount;
-
-        // 首批只在 VF 中生成一次索引
-        int64_t curRows = Std::min<int64_t>(rowsPerVF, remainRows);
-        int64_t curElements = curRows * width;
-
-        // LeftPad: srcRow 倒序 (从高行到低行), dstRow 正序
-        // RightPad: srcRow 正序, dstRow 倒序 (从高行到低行)
-        int64_t srcRowBase = 0;
-        int64_t dstRowBase = 0;
-        if (isLeftPad) {
-            // LeftPad: srcRowBase 是最高源行号 (padCount-1)，递减处理
-            srcRowBase = padCount - 1;
-            // dstRowBase 对应 srcRowBase 的目标行号，是最低目标行号，递增处理
-            dstRowBase = IS_REFLECT ? (2 * leftPadH - srcRowBase) : (2 * leftPadH - 1 - srcRowBase);
-        } else {
-            // RightPad: srcRowBase 是最低源行号 (leftPadH + outH)，递增处理
-            srcRowBase = leftPadH + outH;
-            // dstRowBase 对应 srcRowBase 的目标行号，是最高目标行号，递减处理
-            dstRowBase = IS_REFLECT ? (leftPadH + outH - 2) : (leftPadH + outH - 1);
-        }
-
-        __VEC_SCOPE__
-        {
-            uint32_t vLen = static_cast<uint32_t>(curElements);
-            AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
-
-            AscendC::MicroAPI::RegTensor<GatherRangeType> xReg;
-            AscendC::MicroAPI::Arange(xReg, static_cast<GatherRangeType>(0));
-
-            AscendC::MicroAPI::RegTensor<GatherRangeType> rowReg;
-            AscendC::MicroAPI::RegTensor<GatherRangeType> colReg;
-            AscendC::MicroAPI::RegTensor<GatherRangeType> tmpReg;
-            AscendC::MicroAPI::RegTensor<GatherRangeType> baseReg;
-
-            AscendC::MicroAPI::RegTensor<GatherRangeType> srcRowReg;
-            AscendC::MicroAPI::RegTensor<GatherRangeType> dstRowReg;
-            AscendC::MicroAPI::RegTensor<GatherRangeType> srcIdxReg;
-            AscendC::MicroAPI::RegTensor<GatherRangeType> dstIdxReg;
-
-            // rowReg = xReg / width, colReg = xReg % width
-            AscendC::MicroAPI::Duplicate(baseReg, static_cast<GatherRangeType>(width), mask);
-            AscendC::MicroAPI::Div(rowReg, xReg, baseReg, mask);
-            AscendC::MicroAPI::Muls(tmpReg, rowReg, static_cast<GatherRangeType>(width), mask);
-            AscendC::MicroAPI::Sub(colReg, xReg, tmpReg, mask);
-
-            // 根据 isLeftPad 区分索引计算方向
+        for (int64_t padRow = 0; padRow < padCount; ++padRow) {
+            int64_t srcRow, dstRow;
             if (isLeftPad) {
-                // LeftPad: srcRow 倒序, dstRow 正序
-                // srcRowReg = srcRowBase - rowReg (从高行递减)
-                // dstRowReg = dstRowBase + rowReg (从低行递增)
-                AscendC::MicroAPI::Duplicate(srcRowReg, static_cast<GatherRangeType>(srcRowBase), mask);
-                AscendC::MicroAPI::Sub(srcRowReg, srcRowReg, rowReg, mask);
-
-                AscendC::MicroAPI::Duplicate(dstRowReg, static_cast<GatherRangeType>(dstRowBase), mask);
-                AscendC::MicroAPI::Add(dstRowReg, dstRowReg, rowReg, mask);
+                srcRow = padCount - 1 - padRow;
+                dstRow = IS_REFLECT ? (2 * leftPadH - srcRow) : (2 * leftPadH - 1 - srcRow);
             } else {
-                // RightPad: srcRow 正序, dstRow 倒序
-                // srcRowReg = srcRowBase + rowReg (从低行递增)
-                // dstRowReg = dstRowBase - rowReg (从高行递减)
-                AscendC::MicroAPI::Duplicate(srcRowReg, static_cast<GatherRangeType>(srcRowBase), mask);
-                AscendC::MicroAPI::Add(srcRowReg, srcRowReg, rowReg, mask);
-
-                AscendC::MicroAPI::Duplicate(dstRowReg, static_cast<GatherRangeType>(dstRowBase), mask);
-                AscendC::MicroAPI::Sub(dstRowReg, dstRowReg, rowReg, mask);
+                srcRow = leftPadH + outH + padRow;
+                dstRow = IS_REFLECT ? (leftPadH + outH - 2 - padRow) : (leftPadH + outH - 1 - padRow);
             }
+            const int64_t srcRowOffset = srcRow * width;
+            const int64_t dstRowOffset = dstRow * width;
 
-            AscendC::MicroAPI::Muls(srcIdxReg, srcRowReg, static_cast<GatherRangeType>(width), mask);
-            AscendC::MicroAPI::Muls(dstIdxReg, dstRowReg, static_cast<GatherRangeType>(width), mask);
+            for (int64_t nBase = 0; nBase < nFactor; nBase += nPerVF) {
+                int64_t curN = Std::min<int64_t>(nPerVF, nFactor - nBase);
+                int64_t totalElems = curN * elemPerN;
 
-            AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, colReg, mask);
-            AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, colReg, mask);
+                if (nBase == 0) {
+                    // 首批：三级分解 x → (nInBatch, c, col)
+                    // srcIdx = nInBatch*nStride + c*hwSize + srcRowOffset + col
+                    // dstIdx = nInBatch*nStride + c*hwSize + dstRowOffset + col
+                    __VEC_SCOPE__
+                    {
+                        uint32_t vLen = static_cast<uint32_t>(totalElems);
+                        AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
 
-            AscendC::MicroAPI::Duplicate(tmpReg, static_cast<GatherRangeType>(matrixOffset), mask);
-            AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, tmpReg, mask);
-            AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, tmpReg, mask);
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> xReg;
+                        AscendC::MicroAPI::Arange(xReg, static_cast<GatherRangeType>(0));
 
-            AscendC::MicroAPI::DataCopy(srcIdxAddr, srcIdxReg, mask);
-            AscendC::MicroAPI::DataCopy(dstIdxAddr, dstIdxReg, mask);
+                        // N 级分解：nInBatch = x / elemPerN, xi = x % elemPerN
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> nInBatchReg, xiReg, elemPerNReg, tmpReg;
+                        AscendC::MicroAPI::Duplicate(elemPerNReg, static_cast<GatherRangeType>(elemPerN), mask);
+                        AscendC::MicroAPI::Div(nInBatchReg, xReg, elemPerNReg, mask);
+                        AscendC::MicroAPI::Muls(tmpReg, nInBatchReg, static_cast<GatherRangeType>(elemPerN), mask);
+                        AscendC::MicroAPI::Sub(xiReg, xReg, tmpReg, mask);
+
+                        // C 级分解：c = xi / width, col = xi % width
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> cReg, colReg, wReg;
+                        AscendC::MicroAPI::Duplicate(wReg, static_cast<GatherRangeType>(width), mask);
+                        AscendC::MicroAPI::Div(cReg, xiReg, wReg, mask);
+                        AscendC::MicroAPI::Muls(tmpReg, cReg, static_cast<GatherRangeType>(width), mask);
+                        AscendC::MicroAPI::Sub(colReg, xiReg, tmpReg, mask);
+
+                        // N 轴偏移（src 和 dst 共享）
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> nOffsetReg;
+                        AscendC::MicroAPI::Muls(nOffsetReg, nInBatchReg,
+                            static_cast<GatherRangeType>(nStride), mask);
+
+                        // srcIdx = nOffset + c*hwSize + srcRowOffset + col
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> srcIdxReg;
+                        AscendC::MicroAPI::Muls(srcIdxReg, cReg, static_cast<GatherRangeType>(hwSize), mask);
+                        AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, nOffsetReg, mask);
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> srcBaseReg;
+                        AscendC::MicroAPI::Duplicate(srcBaseReg, static_cast<GatherRangeType>(srcRowOffset), mask);
+                        AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, srcBaseReg, mask);
+                        AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, colReg, mask);
+
+                        // dstIdx = nOffset + c*hwSize + dstRowOffset + col
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> dstIdxReg;
+                        AscendC::MicroAPI::Muls(dstIdxReg, cReg, static_cast<GatherRangeType>(hwSize), mask);
+                        AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, nOffsetReg, mask);
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> dstBaseReg;
+                        AscendC::MicroAPI::Duplicate(dstBaseReg, static_cast<GatherRangeType>(dstRowOffset), mask);
+                        AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, dstBaseReg, mask);
+                        AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, colReg, mask);
+
+                        AscendC::MicroAPI::DataCopy(srcIdxAddr, srcIdxReg, mask);
+                        AscendC::MicroAPI::DataCopy(dstIdxAddr, dstIdxReg, mask);
+                    }
+                } else {
+                    // 后续批：src 和 dst 同向递增 nPerVF*nStride（N 轴两端方向一致）
+                    GatherRangeType nStep = static_cast<GatherRangeType>(nPerVF * static_cast<int64_t>(nStride));
+                    __VEC_SCOPE__
+                    {
+                        uint32_t vLen = static_cast<uint32_t>(totalElems);
+                        AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> srcIdxReg, dstIdxReg, stepReg;
+                        AscendC::MicroAPI::DataCopy(srcIdxReg, srcIdxAddr);
+                        AscendC::MicroAPI::DataCopy(dstIdxReg, dstIdxAddr);
+                        AscendC::MicroAPI::Duplicate(stepReg, nStep, mask);
+                        AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, stepReg, mask);
+                        AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, stepReg, mask);
+                        AscendC::MicroAPI::DataCopy(srcIdxAddr, srcIdxReg, mask);
+                        AscendC::MicroAPI::DataCopy(dstIdxAddr, dstIdxReg, mask);
+                    }
+                }
+                GatherAddScatter(baseAddr + ZERO_PAD_CNT, srcIdxAddr, dstIdxAddr,
+                    static_cast<uint64_t>(totalElems));
+                event_t eventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
+                SetFlag<HardEvent::V_S>(eventId);
+                WaitFlag<HardEvent::V_S>(eventId);
+            }
         }
+    } else {
+        // ===== 回退路径：C 轴分批，N 循环在内部 =====
+        // 适用于：nFactor==1（FoldHWAxis 调用），或 elemPerN > VL_RANGE_CNT（C 通道很多）
+        int64_t factorsPerVF = static_cast<int64_t>(VL_RANGE_CNT) / width;
+        if (factorsPerVF < 1) factorsPerVF = 1;
 
-        GatherAddScatter(midAddr + ZERO_PAD_CNT, srcIdxAddr, dstIdxAddr, static_cast<uint64_t>(curElements));
+        for (int64_t n = 0; n < nFactor; n++) {
+            __local_mem__ PromoteDataT* nBaseAddr = baseAddr + n * static_cast<int64_t>(nStride);
 
-        event_t eventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
-        SetFlag<HardEvent::V_S>(eventId);
-        WaitFlag<HardEvent::V_S>(eventId);
+            for (int64_t padRow = 0; padRow < padCount; ++padRow) {
+                int64_t srcRow, dstRow;
+                if (isLeftPad) {
+                    srcRow = padCount - 1 - padRow;
+                    dstRow = IS_REFLECT ? (2 * leftPadH - srcRow) : (2 * leftPadH - 1 - srcRow);
+                } else {
+                    srcRow = leftPadH + outH + padRow;
+                    dstRow = IS_REFLECT ? (leftPadH + outH - 2 - padRow) : (leftPadH + outH - 1 - padRow);
+                }
+                const int64_t srcRowOffset = srcRow * width;
+                const int64_t dstRowOffset = dstRow * width;
 
-        remainRows -= curRows;
+                int64_t remainC = factor;
+                int64_t cBase = 0;
 
-        const int64_t srcStep = isLeftPad ? -batchStep : batchStep;
-        const int64_t dstStep = isLeftPad ? batchStep : -batchStep;
+                // 首批：用 VF 生成索引
+                int64_t curC = Std::min<int64_t>(factorsPerVF, remainC);
+                int64_t curElements = curC * width;
 
-        while (remainRows > 0) {
-            curRows = Std::min<int64_t>(rowsPerVF, remainRows);
-            curElements = curRows * width;
+                __VEC_SCOPE__
+                {
+                    uint32_t vLen = static_cast<uint32_t>(curElements);
+                    AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
 
-            __VEC_SCOPE__
-            {
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> xReg;
+                    AscendC::MicroAPI::Arange(xReg, static_cast<GatherRangeType>(0));
 
-                uint32_t vLen = static_cast<uint32_t>(curElements);
-                AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> cReg, colReg, tmpReg, wReg;
+                    AscendC::MicroAPI::Duplicate(wReg, static_cast<GatherRangeType>(width), mask);
+                    AscendC::MicroAPI::Div(cReg, xReg, wReg, mask);
+                    AscendC::MicroAPI::Muls(tmpReg, cReg, static_cast<GatherRangeType>(width), mask);
+                    AscendC::MicroAPI::Sub(colReg, xReg, tmpReg, mask);
 
-                AscendC::MicroAPI::RegTensor<GatherRangeType> srcReg;
-                AscendC::MicroAPI::RegTensor<GatherRangeType> dstReg;
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> absCReg;
+                    AscendC::MicroAPI::Duplicate(absCReg, static_cast<GatherRangeType>(cBase), mask);
+                    AscendC::MicroAPI::Add(absCReg, absCReg, cReg, mask);
 
-                AscendC::MicroAPI::Duplicate(srcReg, static_cast<GatherRangeType>(srcStep), mask);
-                AscendC::MicroAPI::Duplicate(dstReg, static_cast<GatherRangeType>(dstStep), mask);
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> srcIdxReg, dstIdxReg;
+                    AscendC::MicroAPI::Muls(srcIdxReg, absCReg, static_cast<GatherRangeType>(hwSize), mask);
+                    AscendC::MicroAPI::Muls(dstIdxReg, absCReg, static_cast<GatherRangeType>(hwSize), mask);
 
-                AscendC::MicroAPI::RegTensor<GatherRangeType> srcIdxReg;
-                AscendC::MicroAPI::RegTensor<GatherRangeType> dstIdxReg;
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> srcBaseReg, dstBaseReg;
+                    AscendC::MicroAPI::Duplicate(srcBaseReg, static_cast<GatherRangeType>(srcRowOffset), mask);
+                    AscendC::MicroAPI::Duplicate(dstBaseReg, static_cast<GatherRangeType>(dstRowOffset), mask);
 
-                AscendC::MicroAPI::DataCopy(srcIdxReg, srcIdxAddr);
-                AscendC::MicroAPI::DataCopy(dstIdxReg, dstIdxAddr);
+                    AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, srcBaseReg, mask);
+                    AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, dstBaseReg, mask);
+                    AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, colReg, mask);
+                    AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, colReg, mask);
 
-                AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, srcReg, mask);
-                AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, dstReg, mask);
+                    AscendC::MicroAPI::DataCopy(srcIdxAddr, srcIdxReg, mask);
+                    AscendC::MicroAPI::DataCopy(dstIdxAddr, dstIdxReg, mask);
+                }
 
-                AscendC::MicroAPI::DataCopy(srcIdxAddr, srcIdxReg, mask);
-                AscendC::MicroAPI::DataCopy(dstIdxAddr, dstIdxReg, mask);
+                GatherAddScatter(nBaseAddr + ZERO_PAD_CNT, srcIdxAddr, dstIdxAddr,
+                    static_cast<uint64_t>(curElements));
+                event_t eventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
+                SetFlag<HardEvent::V_S>(eventId);
+                WaitFlag<HardEvent::V_S>(eventId);
+
+                remainC -= curC;
+                cBase += curC;
+                const int64_t cStep = factorsPerVF * static_cast<int64_t>(hwSize);
+
+                while (remainC > 0) {
+                    curC = Std::min<int64_t>(factorsPerVF, remainC);
+                    curElements = curC * width;
+
+                    __VEC_SCOPE__
+                    {
+                        uint32_t vLen = static_cast<uint32_t>(curElements);
+                        AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
+
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> stepReg;
+                        AscendC::MicroAPI::Duplicate(stepReg, static_cast<GatherRangeType>(cStep), mask);
+
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> srcIdxReg, dstIdxReg;
+                        AscendC::MicroAPI::DataCopy(srcIdxReg, srcIdxAddr);
+                        AscendC::MicroAPI::DataCopy(dstIdxReg, dstIdxAddr);
+
+                        AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, stepReg, mask);
+                        AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, stepReg, mask);
+
+                        AscendC::MicroAPI::DataCopy(srcIdxAddr, srcIdxReg, mask);
+                        AscendC::MicroAPI::DataCopy(dstIdxAddr, dstIdxReg, mask);
+                    }
+
+                    GatherAddScatter(nBaseAddr + ZERO_PAD_CNT, srcIdxAddr, dstIdxAddr,
+                        static_cast<uint64_t>(curElements));
+                    event_t nextEventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
+                    SetFlag<HardEvent::V_S>(nextEventId);
+                    WaitFlag<HardEvent::V_S>(nextEventId);
+
+                    remainC -= curC;
+                    cBase += curC;
+                }
             }
-
-            GatherAddScatter(midAddr + ZERO_PAD_CNT, srcIdxAddr, dstIdxAddr, static_cast<uint64_t>(curElements));
-
-            event_t nextEventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
-            SetFlag<HardEvent::V_S>(nextEventId);
-            WaitFlag<HardEvent::V_S>(nextEventId);
-
-            remainRows -= curRows;
         }
     }
 }
 
 /**
- * @brief 折叠 C 轴的 pad 数据
+ * @brief 折叠 C 轴的 pad 数据（支持跨 N 批处理）
  *
  * 将 C 轴的 pad 通道数据累加到对应的 mid 通道。每个通道包含 hwSize 个元素，
  * 通过 GatherAddScatter 实现同一 buffer 内不同通道间的数据累加。
@@ -1730,72 +2006,200 @@ __aicore__ inline void PadV3GradGather<T,modeName>::FoldHAxisPad(
  *   - left pad:  srcC -> dstC = 2*leftPadC - 1 - srcC
  *   - right pad: cIdx -> dstC = leftPadC + outC - 1 - cIdx
  *
- * @param hwSize     单个 C 通道的 H*W 大小
- * @param padCount   pad 通道数（leftPadC 或 rightPadC）
- * @param isLeftPad  true: 处理 left pad  false: 处理 right pad
- * @param leftPadC   左 pad 通道数（用于计算映射）
- * @param outC       输出通道数
- * @param midAddr    数据地址
- * @param srcIdxAddr 源索引数组地址
- * @param dstIdxAddr 目标索引数组地址
+ * 优化策略（当 padCount*hwSize <= VL_RANGE_CNT 时）：
+ *   引入两层批处理：
+ *   1. C pad 批：cPadsPerVF = VL_RANGE_CNT / hwSize，一批处理多个 pad C 通道
+ *   2. N 批：nPerVF = VL_RANGE_CNT / (padCount*hwSize)，一批处理多个 N
+ *   两层合并后，一次 VF 同时处理 nPerVF 个 N 的所有 padCount 个 pad C 通道。
+ *   N 间的 srcIdx/dstIdx 增量方向相同（均 +nStride），后续批次增量更新简单。
+ *
+ * @param hwSize      单个 C 通道的 H*W 大小
+ * @param padCount    pad 通道数（leftPadC 或 rightPadC）
+ * @param isLeftPad   是否为 left pad（true=left, false=right）
+ * @param leftPadC    左 pad 通道数
+ * @param outC        输出通道数
+ * @param factor      N 轴的数量
+ * @param nStride     相邻 N 之间的元素步长（= cHeight * hwSize）
+ * @param baseAddr    全局 base 地址（midAddr + ZERO_PAD_CNT，不含 N 偏移）
+ * @param srcIdxAddr  源索引数组地址
+ * @param dstIdxAddr  目标索引数组地址
  */
 template <typename T, uint8_t modeName>
 __aicore__ inline void PadV3GradGather<T,modeName>::FoldCAxisPad(
     uint64_t hwSize, int64_t padCount, bool isLeftPad, int64_t leftPadC, int64_t outC,
-    __local_mem__ PromoteDataT* midAddr,
+    int64_t factor, uint64_t nStride,
+    __local_mem__ PromoteDataT* baseAddr,
     __local_mem__ GatherRangeType* srcIdxAddr, __local_mem__ GatherRangeType* dstIdxAddr)
 {
-    if (padCount <= 0) return;
+    if (padCount <= 0 || factor <= 0) return;
 
-    int64_t elementsPerVF = VL_RANGE_CNT;
+    // padElem: 每个 N 的所有 pad C 通道元素总数
+    int64_t padElem = padCount * static_cast<int64_t>(hwSize);
 
-    // 获取 LocalTensor 用于 Adds 偏移操作
-    LocalTensor<GatherRangeType> srcIdxLocal = leftPadIdx_.Get<GatherRangeType>();
-    LocalTensor<GatherRangeType> dstIdxLocal = midIdx_.Get<GatherRangeType>();
+    if (padElem <= static_cast<int64_t>(VL_RANGE_CNT)) {
+        // ===== 优化路径：一次 VF 同时处理多个 N 的所有 pad C 通道 =====
+        // nPerVF: 一次 VF 能处理几个 N（每个 N 贡献 padElem 个元素）
+        int64_t nPerVF = static_cast<int64_t>(VL_RANGE_CNT) / padElem;
+        if (nPerVF < 1) nPerVF = 1;
 
-    for (int64_t cIdx = 0; cIdx < padCount; cIdx++) {
-        int64_t srcC, dstC;
+        // srcC0 / dstC0: padBase=0, nBase=0 时的初始通道号
+        int64_t srcC0, dstC0;
         if (isLeftPad) {
-            srcC = cIdx;
-            dstC = (modeName == 2) ? (2 * leftPadC - srcC) : (2 * leftPadC - 1 - srcC);
+            srcC0 = 0;
+            dstC0 = (modeName == 2) ? (2 * leftPadC) : (2 * leftPadC - 1);
         } else {
-            srcC = leftPadC + outC + cIdx;
-            dstC = (modeName == 2) ? (leftPadC + outC - 2 - cIdx) : (leftPadC + outC - 1 - cIdx);
+            srcC0 = leftPadC + outC;
+            dstC0 = (modeName == 2) ? (leftPadC + outC - 2) : (leftPadC + outC - 1);
         }
 
-        uint64_t srcOffset = srcC * hwSize;
-        uint64_t dstOffset = dstC * hwSize;
-        
-        // 只在每个 cIdx 开始时用 Arange 生成一次初始索引
-        __VEC_SCOPE__
-        {
-            uint32_t vLen = VL_RANGE_CNT;
-            AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
+        for (int64_t nBase = 0; nBase < factor; nBase += nPerVF) {
+            int64_t curN = Std::min<int64_t>(nPerVF, factor - nBase);
+            int64_t totalElems = curN * padElem;
 
-            AscendC::MicroAPI::RegTensor<GatherRangeType> srcReg;
-            AscendC::MicroAPI::Arange(srcReg, static_cast<GatherRangeType>(srcOffset));
-            AscendC::MicroAPI::DataCopy(srcIdxAddr, srcReg, mask);
+            if (nBase == 0) {
+                // 第一批：Arange(0) + 向量分解，一次性生成所有 curN 个 N 的完整索引
+                // 元素序号 x = [0..totalElems-1]，分解为 (nInBatch, ci, e)：
+                //   nInBatch = x / padElem         — 在当前批内第几个 N
+                //   xi       = x % padElem         — 该 N 内的序号
+                //   ci       = xi / hwSize          — 该 N 内第几个 pad C 通道
+                //   e        = xi % hwSize          — 通道内偏移
+                //
+                // srcIdx = (nBase + nInBatch) * nStride + srcC0*hwSize + xi
+                //          （srcC 随 ci 递增，xi = ci*hwSize+e，直接用 Arange 生成 srcC0*hwSize+xi 部分）
+                // dstIdx = (nBase + nInBatch) * nStride + (dstC0 - ci) * hwSize + e
+                __VEC_SCOPE__
+                {
+                    uint32_t vLen = static_cast<uint32_t>(totalElems);
+                    AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
 
-            AscendC::MicroAPI::RegTensor<GatherRangeType> dstReg;
-            AscendC::MicroAPI::Arange(dstReg, static_cast<GatherRangeType>(dstOffset));
-            AscendC::MicroAPI::DataCopy(dstIdxAddr, dstReg, mask);
-        }
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> xReg;
+                    AscendC::MicroAPI::Arange(xReg, static_cast<GatherRangeType>(0));
 
-        // 分批处理 hwSize 个元素，后续批次直接累加偏移
-        for (uint64_t startElem = 0; startElem < hwSize; startElem += elementsPerVF) {
-            uint32_t curElements = Std::min(static_cast<uint64_t>(elementsPerVF), hwSize - startElem);
+                    // ── N 层分解 ──
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> nInBatchReg, xiReg, padElemReg, tmpReg;
+                    AscendC::MicroAPI::Duplicate(padElemReg, static_cast<GatherRangeType>(padElem), mask);
+                    AscendC::MicroAPI::Div(nInBatchReg, xReg, padElemReg, mask);
+                    AscendC::MicroAPI::Muls(tmpReg, nInBatchReg, static_cast<GatherRangeType>(padElem), mask);
+                    AscendC::MicroAPI::Sub(xiReg, xReg, tmpReg, mask);    // xi = x % padElem
 
-            if (startElem > 0) {
-                AscendC::Adds(srcIdxLocal, srcIdxLocal, static_cast<PromoteDataT>(elementsPerVF), elementsPerVF);
-                AscendC::Adds(dstIdxLocal, dstIdxLocal, static_cast<PromoteDataT>(elementsPerVF), elementsPerVF);
+                    // ── C 层分解 ──
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> ciReg, eReg, hwReg;
+                    AscendC::MicroAPI::Duplicate(hwReg, static_cast<GatherRangeType>(hwSize), mask);
+                    AscendC::MicroAPI::Div(ciReg, xiReg, hwReg, mask);
+                    AscendC::MicroAPI::Muls(tmpReg, ciReg, static_cast<GatherRangeType>(hwSize), mask);
+                    AscendC::MicroAPI::Sub(eReg, xiReg, tmpReg, mask);    // e = xi % hwSize
+
+                    // ── N 轴偏移（两者共享）──
+                    // nOffset_reg = nInBatch * nStride  （nBase=0 时不含常量偏移）
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> nOffsetReg;
+                    AscendC::MicroAPI::Muls(nOffsetReg, nInBatchReg,
+                        static_cast<GatherRangeType>(nStride), mask);
+
+                    // ── srcIdx ──
+                    // srcIdx = nOffset + srcC0*hwSize + xi
+                    //        = nOffset + (srcC0*hwSize + xi)     [其中 srcC0*hwSize+xi 是 Arange 部分]
+                    // 直接：srcIdx = nOffset + Duplicate(srcC0*hwSize) + xiReg
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> srcIdxReg;
+                    AscendC::MicroAPI::Duplicate(srcIdxReg,
+                        static_cast<GatherRangeType>(srcC0 * static_cast<int64_t>(hwSize)), mask);
+                    AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, xiReg, mask);
+                    AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, nOffsetReg, mask);
+
+                    // ── dstIdx ──
+                    // dstC = dstC0 - ci
+                    // dstIdx = nOffset + dstC * hwSize + e
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> dstCReg, dstIdxReg;
+                    AscendC::MicroAPI::Duplicate(dstCReg, static_cast<GatherRangeType>(dstC0), mask);
+                    AscendC::MicroAPI::Sub(dstCReg, dstCReg, ciReg, mask);
+                    AscendC::MicroAPI::Muls(dstIdxReg, dstCReg, static_cast<GatherRangeType>(hwSize), mask);
+                    AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, eReg, mask);
+                    AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, nOffsetReg, mask);
+
+                    AscendC::MicroAPI::DataCopy(srcIdxAddr, srcIdxReg, mask);
+                    AscendC::MicroAPI::DataCopy(dstIdxAddr, dstIdxReg, mask);
+                }
+            } else {
+                // 后续批次：N 轴移动，srcIdx 和 dstIdx 均加 nPerVF * nStride（方向相同）
+                GatherRangeType nStep = static_cast<GatherRangeType>(nPerVF * static_cast<int64_t>(nStride));
+
+                __VEC_SCOPE__
+                {
+                    uint32_t vLen = static_cast<uint32_t>(totalElems);
+                    AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
+
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> srcIdxReg, dstIdxReg, stepReg;
+                    AscendC::MicroAPI::DataCopy(srcIdxReg, srcIdxAddr);
+                    AscendC::MicroAPI::DataCopy(dstIdxReg, dstIdxAddr);
+                    AscendC::MicroAPI::Duplicate(stepReg, nStep, mask);
+                    AscendC::MicroAPI::Add(srcIdxReg, srcIdxReg, stepReg, mask);
+                    AscendC::MicroAPI::Add(dstIdxReg, dstIdxReg, stepReg, mask);
+                    AscendC::MicroAPI::DataCopy(srcIdxAddr, srcIdxReg, mask);
+                    AscendC::MicroAPI::DataCopy(dstIdxAddr, dstIdxReg, mask);
+                }
             }
 
-            GatherAddScatter(midAddr, srcIdxAddr, dstIdxAddr, curElements);
+            GatherAddScatter(baseAddr, srcIdxAddr, dstIdxAddr, static_cast<uint64_t>(totalElems));
 
-            // 等待索引使用结束
             event_t eventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
             SetFlag<HardEvent::V_S>(eventId);
             WaitFlag<HardEvent::V_S>(eventId);
+        }
+    } else {
+        // ===== 回退路径：padElem > VL_RANGE_CNT，每个 N 逐 pad C 通道分批处理 =====
+        int64_t elementsPerVF = VL_RANGE_CNT;
+
+        LocalTensor<GatherRangeType> srcIdxLocal = leftPadIdx_.Get<GatherRangeType>();
+        LocalTensor<GatherRangeType> dstIdxLocal = midIdx_.Get<GatherRangeType>();
+
+        for (int64_t n = 0; n < factor; n++) {
+            __local_mem__ PromoteDataT* nMidAddr = baseAddr + n * static_cast<int64_t>(nStride);
+
+            for (int64_t cIdx = 0; cIdx < padCount; cIdx++) {
+                int64_t srcC, dstC;
+                if (isLeftPad) {
+                    srcC = cIdx;
+                    dstC = (modeName == 2) ? (2 * leftPadC - srcC) : (2 * leftPadC - 1 - srcC);
+                } else {
+                    srcC = leftPadC + outC + cIdx;
+                    dstC = (modeName == 2) ? (leftPadC + outC - 2 - cIdx) : (leftPadC + outC - 1 - cIdx);
+                }
+
+                uint64_t srcOffset = static_cast<uint64_t>(srcC) * hwSize;
+                uint64_t dstOffset = static_cast<uint64_t>(dstC) * hwSize;
+
+                // 生成初始索引（覆盖首批 VL_RANGE_CNT 个元素）
+                __VEC_SCOPE__
+                {
+                    uint32_t vLen = VL_RANGE_CNT;
+                    AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
+
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> srcReg;
+                    AscendC::MicroAPI::Arange(srcReg, static_cast<GatherRangeType>(srcOffset));
+                    AscendC::MicroAPI::DataCopy(srcIdxAddr, srcReg, mask);
+
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> dstReg;
+                    AscendC::MicroAPI::Arange(dstReg, static_cast<GatherRangeType>(dstOffset));
+                    AscendC::MicroAPI::DataCopy(dstIdxAddr, dstReg, mask);
+                }
+
+                // 分批处理 hwSize 个元素，后续批次 Adds 递增索引
+                for (uint64_t startElem = 0; startElem < hwSize; startElem += elementsPerVF) {
+                    uint32_t curElements = Std::min(static_cast<uint64_t>(elementsPerVF), hwSize - startElem);
+
+                    if (startElem > 0) {
+                        AscendC::Adds(srcIdxLocal, srcIdxLocal,
+                            static_cast<PromoteDataT>(elementsPerVF), elementsPerVF);
+                        AscendC::Adds(dstIdxLocal, dstIdxLocal,
+                            static_cast<PromoteDataT>(elementsPerVF), elementsPerVF);
+                    }
+
+                    GatherAddScatter(nMidAddr, srcIdxAddr, dstIdxAddr, curElements);
+
+                    event_t eventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
+                    SetFlag<HardEvent::V_S>(eventId);
+                    WaitFlag<HardEvent::V_S>(eventId);
+                }
+            }
         }
     }
 }
@@ -1858,127 +2262,99 @@ __aicore__ inline void PadV3GradGather<T,modeName>::FoldHWAxis(int64_t factor,
     __local_mem__ GatherRangeType* rightIdxAddr = (__local_mem__ GatherRangeType*)rightIdxLocal.GetPhyAddr();
 
     // ===== 3. 折叠 H 轴 pad =====
-    // 对每个 C 通道（factor 个）折叠 H 轴的 pad
-    FoldHAxisPad(factor, hwSize, width, leftPadH, true, leftPadH, outH, midAddr, leftIdxAddr, midIdxAddr);
-    FoldHAxisPad(factor, hwSize, width, rightPadH, false, leftPadH, outH, midAddr, leftIdxAddr, midIdxAddr);
+    // 对每个 C 通道（factor 个）折叠 H 轴的 pad（nFactor=1 退化为原逻辑）
+    FoldHAxisPad(factor, hwSize, width, leftPadH, true, leftPadH, outH, 1, 0, midAddr, leftIdxAddr, midIdxAddr);
+    FoldHAxisPad(factor, hwSize, width, rightPadH, false, leftPadH, outH, 1, 0, midAddr, leftIdxAddr, midIdxAddr);
 
-    // ===== 4. 折叠 W 轴并输出 =====
-    // 索引和偏移分别存放在独立的 buffer 中
-    int64_t maxElements = VL_RANGE_CNT;
-    int64_t rowsPerBatch = maxElements / outW;
-    if (rowsPerBatch < 1) rowsPerBatch = 1;
+    // ===== 4. 折叠 W 轴并输出（跨 C 通道优化版）=====
+    // 优化：一次 VF 同时处理多个 C 通道的所有行，减少循环次数
+    // 对于 H*W 很小的场景（如 outH=2, outW=3），原来每次 VF 只处理 6 元素（利用率 9%）
+    // 优化后每次 VF 处理 cPerVF 个 C 通道的所有行，利用率大幅提升
 
-    GatherRangeType batchOffset = static_cast<GatherRangeType>(rowsPerBatch * width);  // 每批行的偏移
+    // 4.1 计算跨 C 通道的批次参数
+    // totalRowsPerVF: 一次 VF 能处理的最大行数（基于 VL 寄存器容量）
+    int64_t totalRowsPerVF = static_cast<int64_t>(Std::min(VL_RANGE_CNT, VL_COMPUTE_CNT)) / outW;
+    if (totalRowsPerVF < 1) totalRowsPerVF = 1;
 
-    // 偏移数组使用独立的 buffer
-    LocalTensor<GatherRangeType> leftOffsetLocal = leftPadOffset_.Get<GatherRangeType>();
-    LocalTensor<GatherRangeType> midOffsetLocal = midOffset_.Get<GatherRangeType>();
-    LocalTensor<GatherRangeType> rightOffsetLocal = rightPadOffset_.Get<GatherRangeType>();
+    // cPerVF: 每次 VF 跨越的完整 C 通道数（对齐到 outH 整数倍，保证批次边界落在 C 通道边界）
+    int64_t cPerVF = totalRowsPerVF / outH;
+    int64_t actualRowsPerVF;
+    GatherIdxType batchDelta;  // 批次间索引增量（对有效位置）
 
-    __local_mem__ GatherRangeType* leftOffsetAddr = (__local_mem__ GatherRangeType*)leftOffsetLocal.GetPhyAddr();
-    __local_mem__ GatherRangeType* midOffsetAddr = (__local_mem__ GatherRangeType*)midOffsetLocal.GetPhyAddr();
-    __local_mem__ GatherRangeType* rightOffsetAddr = (__local_mem__ GatherRangeType*)rightOffsetLocal.GetPhyAddr();
+    if (cPerVF >= 1) {
+        // 跨 C 通道模式：每批处理 cPerVF 个完整 C 通道
+        actualRowsPerVF = cPerVF * outH;
+        batchDelta = static_cast<GatherIdxType>(cPerVF * static_cast<int64_t>(hwSize));
+    } else {
+        // 退化模式：outH > totalRowsPerVF，单 C 通道内多行批次
+        actualRowsPerVF = totalRowsPerVF;
+        batchDelta = static_cast<GatherIdxType>(actualRowsPerVF * width);
+    }
 
-    // 生成索引和偏移数组（只生成一次，基于第一个 C 的前 rowsPerBatch 行）
-    GenerateWAxisIndices(0, static_cast<uint16_t>(rowsPerBatch), static_cast<uint16_t>(outW),
-        static_cast<uint16_t>(width), leftPadW, rightPadW, leftPadH, batchOffset,
-        midIdxAddr, leftIdxAddr, rightIdxAddr, midOffsetAddr, leftOffsetAddr, rightOffsetAddr);
+    // 4.2 用 VF 生成跨 C 通道的初始索引（两次 Div，一次覆盖所有 actualRowsPerVF 行）
+    GenerateCrossChannelWAxisIndices(
+        static_cast<uint32_t>(actualRowsPerVF), static_cast<uint16_t>(outW),
+        static_cast<uint16_t>(outH), width, hwSize,
+        leftPadW, rightPadW, leftPadH,
+        midIdxAddr, leftIdxAddr, rightIdxAddr);
 
     // ===== 5. 循环处理所有 C 通道的所有行 =====
-    int64_t totalLoops = (outH + rowsPerBatch - 1) / rowsPerBatch;
-    __VEC_SCOPE__
-    {
-        __local_mem__ PromoteDataT* sregMiddAddr = midAddr;
-        uint16_t reg_factor = static_cast<uint16_t>(factor);
-        uint32_t elementsPerBatch = static_cast<uint32_t>(rowsPerBatch * outW);
+    uint32_t elementsPerBatch = static_cast<uint32_t>(actualRowsPerVF * outW);
 
-        AscendC::MicroAPI::MaskReg idxMask = AscendC::MicroAPI::UpdateMask<GatherIdxType>(elementsPerBatch);
+    if (cPerVF >= 1) {
+        // ===== 5A. 跨 C 通道模式：每批处理 cPerVF 个完整 C 通道 =====
+        // batchDelta = cPerVF * hwSize，批次边界恰好对齐在 C 通道边界，偏移正确
+        int64_t totalRows = factor * outH;
+        int64_t totalBatches = (totalRows + actualRowsPerVF - 1) / actualRowsPerVF;
+        uint16_t totalBatchesU = static_cast<uint16_t>(totalBatches);
+        int64_t tailRows = totalRows - static_cast<int64_t>(totalBatches - 1) * actualRowsPerVF;
+        uint32_t tailElements = static_cast<uint32_t>(tailRows * outW);
 
-        // 转换指针类型用于加载
-        __local_mem__ GatherIdxType* midIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(midIdxAddr);
-        __local_mem__ GatherIdxType* leftIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(leftIdxAddr);
-        __local_mem__ GatherIdxType* rightIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightIdxAddr);
+        __VEC_SCOPE__
+        {
+            __local_mem__ PromoteDataT* sregOutAddr = outputAddr;
+            __local_mem__ PromoteDataT* sregMiddAddr = midAddr;
+            uint32_t tempElementsPerBatch = elementsPerBatch;
+            AscendC::MicroAPI::MaskReg idxMask = AscendC::MicroAPI::UpdateMask<GatherIdxType>(elementsPerBatch);
 
-        __local_mem__ GatherIdxType* midOffsetAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(midOffsetAddr);
-        __local_mem__ GatherIdxType* leftOffsetAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(leftOffsetAddr);
-        __local_mem__ GatherIdxType* rightOffsetAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightOffsetAddr);
+            __local_mem__ GatherIdxType* midIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(midIdxAddr);
+            __local_mem__ GatherIdxType* leftIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(leftIdxAddr);
+            __local_mem__ GatherIdxType* rightIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightIdxAddr);
 
-        AscendC::Reg::UnalignRegForStore ureg1;
+            AscendC::Reg::UnalignRegForStore ureg1;
 
-        // ===== 5.1 加载基础索引到寄存器（c=0 时的初始索引）=====
-        AscendC::MicroAPI::RegTensor<GatherIdxType> baseMidIdxReg;
-        AscendC::MicroAPI::DataCopy(baseMidIdxReg, midIdxAddrU);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midIdxReg;
+            AscendC::MicroAPI::DataCopy(midIdxReg, midIdxAddrU);
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> baseLeftIdxReg;
-        AscendC::MicroAPI::DataCopy(baseLeftIdxReg, leftIdxAddrU);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> leftIdxReg;
+            AscendC::MicroAPI::DataCopy(leftIdxReg, leftIdxAddrU);
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> baseRightIdxReg;
-        AscendC::MicroAPI::DataCopy(baseRightIdxReg, rightIdxAddrU);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> rightIdxReg;
+            AscendC::MicroAPI::DataCopy(rightIdxReg, rightIdxAddrU);
 
-        // 加载行偏移到 RegTensor
-        AscendC::MicroAPI::RegTensor<GatherIdxType> midOffsetReg;
-        AscendC::MicroAPI::DataCopy(midOffsetReg, midOffsetAddrU);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midBatchOffsetReg;
+            AscendC::MicroAPI::Duplicate(midBatchOffsetReg, batchDelta, idxMask);
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> leftOffsetReg;
-        AscendC::MicroAPI::DataCopy(leftOffsetReg, leftOffsetAddrU);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> zeroReg;
+            AscendC::MicroAPI::Duplicate(zeroReg, static_cast<GatherIdxType>(0), idxMask);
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> rightOffsetReg;
-        AscendC::MicroAPI::DataCopy(rightOffsetReg, rightOffsetAddrU);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> leftBatchOffsetReg;
+            AscendC::MicroAPI::Duplicate(leftBatchOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::MaskReg leftValidMask;
+            AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(leftValidMask, leftIdxReg, zeroReg, idxMask);
+            AscendC::MicroAPI::Duplicate<GatherIdxType, MicroAPI::MaskMergeMode::MERGING, GatherIdxType>(leftBatchOffsetReg, batchDelta, leftValidMask);
 
-        // ===== 5.2 生成通道偏移寄存器 =====
-        // midChanOffset: 所有位置都是 hwSize
-        // leftChanOffset: 有效位置是 hwSize，ZERO_PAD 位置是 0
-        // rightChanOffset: 有效位置是 hwSize，ZERO_PAD 位置是 0
-        GatherIdxType hwSizeU = static_cast<GatherIdxType>(hwSize);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> rightBatchOffsetReg;
+            AscendC::MicroAPI::Duplicate(rightBatchOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::MaskReg rightValidMask;
+            AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(rightValidMask, rightIdxReg, zeroReg, idxMask);
+            AscendC::MicroAPI::Duplicate<GatherIdxType, MicroAPI::MaskMergeMode::MERGING, GatherIdxType>(rightBatchOffsetReg, batchDelta, rightValidMask);
 
-        // mid 通道偏移：所有位置都是 hwSize
-        AscendC::MicroAPI::RegTensor<GatherIdxType> midChanOffsetReg;
-        AscendC::MicroAPI::Duplicate(midChanOffsetReg, hwSizeU, idxMask);
+            // 处理完整批次（不含尾块，VEC_SCOPE 内循环变量必须使用 uint16_t）
+            for (uint16_t batch = 0; batch < static_cast<uint16_t>(totalBatchesU - 1); batch++) {
+                uint32_t maskElementsPerBatch = tempElementsPerBatch;
+                AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(maskElementsPerBatch);
 
-        // left 通道偏移：有效位置（baseLeftIdxReg > 0）是 hwSize，ZERO_PAD 位置是 0
-        AscendC::MicroAPI::RegTensor<GatherIdxType> leftChanOffsetReg;
-        AscendC::MicroAPI::RegTensor<GatherIdxType> zeroReg;
-        AscendC::MicroAPI::Duplicate(zeroReg, static_cast<GatherIdxType>(0), idxMask);
-
-        // 先初始化为 0
-        AscendC::MicroAPI::Duplicate(leftChanOffsetReg, static_cast<GatherIdxType>(0), idxMask);
-
-        // 使用 Compare 生成掩码：baseLeftIdxReg > 0 时为 true
-        AscendC::MicroAPI::MaskReg leftValidMask;
-        AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(leftValidMask, baseLeftIdxReg, zeroReg, idxMask);
-
-        // 在满足条件的位置设置为 hwSize
-        AscendC::MicroAPI::Duplicate(leftChanOffsetReg, hwSizeU, leftValidMask);
-
-        // right 通道偏移：同理
-        AscendC::MicroAPI::RegTensor<GatherIdxType> rightChanOffsetReg;
-        AscendC::MicroAPI::Duplicate(rightChanOffsetReg, static_cast<GatherIdxType>(0), idxMask);
-
-        AscendC::MicroAPI::MaskReg rightValidMask;
-        AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(rightValidMask, baseRightIdxReg, zeroReg, idxMask);
-
-        AscendC::MicroAPI::Duplicate(rightChanOffsetReg, hwSizeU, rightValidMask);
-
-        // ===== 5.3 工作索引寄存器（每个 c 循环中会被修改）=====
-        AscendC::MicroAPI::RegTensor<GatherIdxType> midIdxReg;
-        AscendC::MicroAPI::RegTensor<GatherIdxType> leftIdxReg;
-        AscendC::MicroAPI::RegTensor<GatherIdxType> rightIdxReg;
-
-        for (uint16_t c = 0; c < reg_factor; c++) {
-            // ===== 5.4 每个 C 通道开始时，从基础寄存器复制到工作寄存器 =====
-            midIdxReg = baseMidIdxReg;
-            leftIdxReg = baseLeftIdxReg;
-            rightIdxReg = baseRightIdxReg;
-
-            // ===== 5.5 处理完整批次（每批 rowsPerBatch 行）=====
-            for (uint16_t loop = 0; loop < static_cast<uint16_t>(totalLoops - 1); loop++) {
-                int64_t curRows = rowsPerBatch;
-                uint32_t curElements = static_cast<uint32_t>(curRows * outW);
-                uint32_t tempCurElements = curElements;
-
-                AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(curElements);
-
-                // Gather 三个区域的数据：mid（中间）、left（左pad映射）、right（右pad映射）
                 AscendC::MicroAPI::RegTensor<PromoteDataT> midDataReg;
                 AscendC::MicroAPI::DataCopyGather(midDataReg, sregMiddAddr, midIdxReg, mask);
 
@@ -1988,53 +2364,173 @@ __aicore__ inline void PadV3GradGather<T,modeName>::FoldHWAxis(int64_t factor,
                 AscendC::MicroAPI::RegTensor<PromoteDataT> rightDataReg;
                 AscendC::MicroAPI::DataCopyGather(rightDataReg, sregMiddAddr, rightIdxReg, mask);
 
-                // 三个数据相加：sum = mid + left + right
                 AscendC::MicroAPI::RegTensor<PromoteDataT> sumReg;
                 AscendC::MicroAPI::Add(sumReg, midDataReg, leftDataReg, mask);
                 AscendC::MicroAPI::Add(sumReg, sumReg, rightDataReg, mask);
+                AscendC::Reg::StoreUnAlign(sregOutAddr, sumReg, ureg1, tempElementsPerBatch);
 
-                // 直接存储 PromoteDataT 到 outputAddr（cast 在搬出前进行）
-                AscendC::Reg::StoreUnAlign(outputAddr, sumReg, ureg1, tempCurElements);
-
-                // 更新工作索引（为下一批行准备，每次加一次 batchOffset）
-                AscendC::MicroAPI::Add(midIdxReg, midIdxReg, midOffsetReg, idxMask);
-                AscendC::MicroAPI::Add(leftIdxReg, leftIdxReg, leftOffsetReg, idxMask);
-                AscendC::MicroAPI::Add(rightIdxReg, rightIdxReg, rightOffsetReg, idxMask);
+                AscendC::MicroAPI::Add(midIdxReg, midIdxReg, midBatchOffsetReg, idxMask);
+                AscendC::MicroAPI::Add(leftIdxReg, leftIdxReg, leftBatchOffsetReg, idxMask);
+                AscendC::MicroAPI::Add(rightIdxReg, rightIdxReg, rightBatchOffsetReg, idxMask);
             }
 
-            // ===== 5.6 处理尾块（最后不足 rowsPerBatch 的行）=====
-            int64_t curRows = outH - (totalLoops - 1) * rowsPerBatch;
-            uint32_t curElements = static_cast<uint32_t>(curRows * outW);
-            uint32_t tempCurElements = curElements;
-
-            AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(curElements);
-
-            // Gather 三个区域的数据
+            // 处理尾块（最后一个批次，行数可能不满 actualRowsPerVF）
+            uint32_t tempTailElements = tailElements;
+            AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(tailElements);
             AscendC::MicroAPI::RegTensor<PromoteDataT> midDataReg;
             AscendC::MicroAPI::DataCopyGather(midDataReg, sregMiddAddr, midIdxReg, mask);
-
             AscendC::MicroAPI::RegTensor<PromoteDataT> leftDataReg;
             AscendC::MicroAPI::DataCopyGather(leftDataReg, sregMiddAddr, leftIdxReg, mask);
-
             AscendC::MicroAPI::RegTensor<PromoteDataT> rightDataReg;
             AscendC::MicroAPI::DataCopyGather(rightDataReg, sregMiddAddr, rightIdxReg, mask);
 
-            // 三个数据相加：sum = mid + left + right
             AscendC::MicroAPI::RegTensor<PromoteDataT> sumReg;
             AscendC::MicroAPI::Add(sumReg, midDataReg, leftDataReg, mask);
             AscendC::MicroAPI::Add(sumReg, sumReg, rightDataReg, mask);
+            AscendC::Reg::StoreUnAlign(sregOutAddr, sumReg, ureg1, tempTailElements);
+            AscendC::Reg::StoreUnAlignPost(sregOutAddr, ureg1, 0);
+        }
+    } else {
+        // ===== 5B. 退化模式：outH > totalRowsPerVF，单 C 通道内分多行批次 =====
+        //
+        // 【Bug 根因】：不能用统一 batchDelta = actualRowsPerVF * width 做平坦循环！
+        // 当批次跨越 C 通道边界时，跨通道步长 = hwSize（含 H pad 行），
+        // 而行批次步长 = actualRowsPerVF * width。
+        // 当 leftPadH > 0 或 rightPadH > 0 时，hwSize ≠ outH * width，两者不一致。
+        //
+        // 示例（outH=3, actualRowsPerVF=2, leftPadH=1, height=5, hwSize=5*width）：
+        //   平坦 batch1 位置1 = C0-r1-base + 2*width = (leftPadH+3)*width + ZERO_PAD_CNT + leftPadW
+        //   正确应为 C1-r0 = 1*hwSize + leftPadH*width + ZERO_PAD_CNT + leftPadW = 6*width + ...
+        //   两者不等 → 索引错误 → 精度问题。
+        //
+        // 【修复】：嵌套循环，外层遍历 C 通道（步长 hwSize），内层遍历行批次（步长 actualRowsPerVF*width）
+        // 与 FoldWAxisForCHWAxis 采用相同结构，批次不跨 C 通道边界。
 
-            // 直接存储 PromoteDataT 到 outputAddr（cast 在搬出前进行）
-            AscendC::Reg::StoreUnAlign(outputAddr, sumReg, ureg1, tempCurElements);
+        int64_t loopsPerC = (outH + actualRowsPerVF - 1) / actualRowsPerVF;
+        uint16_t loopsPerCU = static_cast<uint16_t>(loopsPerC);
+        uint16_t factorU = static_cast<uint16_t>(factor);
+        int64_t tailRowsInC = outH - (loopsPerC - 1) * actualRowsPerVF;
+        uint32_t tailElementsInC = static_cast<uint32_t>(tailRowsInC * outW);
+        GatherIdxType rowBatchDelta = static_cast<GatherIdxType>(actualRowsPerVF * width);
+        GatherIdxType cChanDelta = static_cast<GatherIdxType>(hwSize);
 
-            // 完成所有非对齐存储，刷新剩余数据
-            AscendC::Reg::StoreUnAlignPost(outputAddr, ureg1, 0);
+        // 保存原始元素计数，UpdateMask 会修改其参数，StoreUnAlign 需要使用未修改的值
+        uint32_t storeElemPerBatch = elementsPerBatch;
+        uint32_t storeTailElemInC = tailElementsInC;
 
-            // ===== 5.7 更新基础索引（为下一个 C 通道准备，加上通道偏移）=====
-            if (c < reg_factor - 1) {
-                AscendC::MicroAPI::Add(baseMidIdxReg, baseMidIdxReg, midChanOffsetReg, idxMask);
-                AscendC::MicroAPI::Add(baseLeftIdxReg, baseLeftIdxReg, leftChanOffsetReg, idxMask);
-                AscendC::MicroAPI::Add(baseRightIdxReg, baseRightIdxReg, rightChanOffsetReg, idxMask);
+        __VEC_SCOPE__
+        {
+            __local_mem__ PromoteDataT* sregMiddAddr = midAddr;
+            // UpdateMask 会修改参数，用临时副本传入
+            uint32_t idxMaskCount = storeElemPerBatch;
+            AscendC::MicroAPI::MaskReg idxMask = AscendC::MicroAPI::UpdateMask<GatherIdxType>(idxMaskCount);
+
+            __local_mem__ GatherIdxType* midIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(midIdxAddr);
+            __local_mem__ GatherIdxType* leftIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(leftIdxAddr);
+            __local_mem__ GatherIdxType* rightIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightIdxAddr);
+
+            AscendC::Reg::UnalignRegForStore ureg1;
+
+            // 加载 C0 基准索引（GenerateCrossChannelWAxisIndices 生成 C0-r0..r(actualRowsPerVF-1)）
+            AscendC::MicroAPI::RegTensor<GatherIdxType> baseMidIdxReg;
+            AscendC::MicroAPI::DataCopy(baseMidIdxReg, midIdxAddrU);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> baseLeftIdxReg;
+            AscendC::MicroAPI::DataCopy(baseLeftIdxReg, leftIdxAddrU);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> baseRightIdxReg;
+            AscendC::MicroAPI::DataCopy(baseRightIdxReg, rightIdxAddrU);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> zeroReg;
+            AscendC::MicroAPI::Duplicate(zeroReg, static_cast<GatherIdxType>(0), idxMask);
+
+            // 行批次偏移（同 C 通道内向下推进 actualRowsPerVF 行）
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midRowOffsetReg;
+            AscendC::MicroAPI::Duplicate(midRowOffsetReg, rowBatchDelta, idxMask);
+
+            AscendC::MicroAPI::MaskReg leftValidMask;
+            AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(leftValidMask, baseLeftIdxReg, zeroReg, idxMask);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> leftRowOffsetReg;
+            AscendC::MicroAPI::Duplicate(leftRowOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::Duplicate(leftRowOffsetReg, rowBatchDelta, leftValidMask);
+
+            AscendC::MicroAPI::MaskReg rightValidMask;
+            AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(rightValidMask, baseRightIdxReg, zeroReg, idxMask);
+            AscendC::MicroAPI::RegTensor<GatherIdxType> rightRowOffsetReg;
+            AscendC::MicroAPI::Duplicate(rightRowOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::Duplicate(rightRowOffsetReg, rowBatchDelta, rightValidMask);
+
+            // C 通道偏移（步长 hwSize，含 H pad 行；ZERO_PAD 位置保持 0）
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midCOffsetReg;
+            AscendC::MicroAPI::Duplicate(midCOffsetReg, cChanDelta, idxMask);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> leftCOffsetReg;
+            AscendC::MicroAPI::Duplicate(leftCOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::Duplicate(leftCOffsetReg, cChanDelta, leftValidMask);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> rightCOffsetReg;
+            AscendC::MicroAPI::Duplicate(rightCOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::Duplicate(rightCOffsetReg, cChanDelta, rightValidMask);
+
+            // 工作寄存器（行批次循环内使用）
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midIdxReg;
+            AscendC::MicroAPI::RegTensor<GatherIdxType> leftIdxReg;
+            AscendC::MicroAPI::RegTensor<GatherIdxType> rightIdxReg;
+
+            // 外层循环：遍历每个 C 通道
+            for (uint16_t c = 0; c < factorU; c++) {
+                // 每个 C 通道开始时，从基准复制到工作寄存器
+                midIdxReg = baseMidIdxReg;
+                leftIdxReg = baseLeftIdxReg;
+                rightIdxReg = baseRightIdxReg;
+
+                // 内层循环：处理当前 C 通道内的完整行批次
+                for (uint16_t loop = 0; loop < static_cast<uint16_t>(loopsPerCU - 1); loop++) {
+                    // UpdateMask 会修改参数，用临时副本传入；StoreUnAlign 用 storeElemPerBatch
+                    uint32_t tempLoopElem = storeElemPerBatch;
+                    AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(tempLoopElem);
+
+                    AscendC::MicroAPI::RegTensor<PromoteDataT> midDataReg;
+                    AscendC::MicroAPI::DataCopyGather(midDataReg, sregMiddAddr, midIdxReg, mask);
+                    AscendC::MicroAPI::RegTensor<PromoteDataT> leftDataReg;
+                    AscendC::MicroAPI::DataCopyGather(leftDataReg, sregMiddAddr, leftIdxReg, mask);
+                    AscendC::MicroAPI::RegTensor<PromoteDataT> rightDataReg;
+                    AscendC::MicroAPI::DataCopyGather(rightDataReg, sregMiddAddr, rightIdxReg, mask);
+
+                    AscendC::MicroAPI::RegTensor<PromoteDataT> sumReg;
+                    AscendC::MicroAPI::Add(sumReg, midDataReg, leftDataReg, mask);
+                    AscendC::MicroAPI::Add(sumReg, sumReg, rightDataReg, mask);
+                    AscendC::Reg::StoreUnAlign(outputAddr, sumReg, ureg1, storeElemPerBatch);
+
+                    // 行批次内推进（同 C 通道，步长 actualRowsPerVF * width）
+                    AscendC::MicroAPI::Add(midIdxReg, midIdxReg, midRowOffsetReg, idxMask);
+                    AscendC::MicroAPI::Add(leftIdxReg, leftIdxReg, leftRowOffsetReg, idxMask);
+                    AscendC::MicroAPI::Add(rightIdxReg, rightIdxReg, rightRowOffsetReg, idxMask);
+                }
+
+                // 当前 C 通道的尾块（最后一批行，可能不满 actualRowsPerVF）
+                {
+                    // UpdateMask 会修改参数，用临时副本传入；StoreUnAlign 用 storeTailElemInC
+                    uint32_t tempTailElem = storeTailElemInC;
+                    AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(tempTailElem);
+                    AscendC::MicroAPI::RegTensor<PromoteDataT> midDataReg;
+                    AscendC::MicroAPI::DataCopyGather(midDataReg, sregMiddAddr, midIdxReg, mask);
+                    AscendC::MicroAPI::RegTensor<PromoteDataT> leftDataReg;
+                    AscendC::MicroAPI::DataCopyGather(leftDataReg, sregMiddAddr, leftIdxReg, mask);
+                    AscendC::MicroAPI::RegTensor<PromoteDataT> rightDataReg;
+                    AscendC::MicroAPI::DataCopyGather(rightDataReg, sregMiddAddr, rightIdxReg, mask);
+
+                    AscendC::MicroAPI::RegTensor<PromoteDataT> sumReg;
+                    AscendC::MicroAPI::Add(sumReg, midDataReg, leftDataReg, mask);
+                    AscendC::MicroAPI::Add(sumReg, sumReg, rightDataReg, mask);
+                    AscendC::Reg::StoreUnAlign(outputAddr, sumReg, ureg1, storeTailElemInC);
+                }
+                AscendC::Reg::StoreUnAlignPost(outputAddr, ureg1, 0);
+
+                // 更新基准到下一个 C 通道（步长 hwSize，不跨 H pad 行混淆）
+                if (c < static_cast<uint16_t>(factorU - 1)) {
+                    AscendC::MicroAPI::Add(baseMidIdxReg, baseMidIdxReg, midCOffsetReg, idxMask);
+                    AscendC::MicroAPI::Add(baseLeftIdxReg, baseLeftIdxReg, leftCOffsetReg, idxMask);
+                    AscendC::MicroAPI::Add(baseRightIdxReg, baseRightIdxReg, rightCOffsetReg, idxMask);
+                }
             }
         }
     }
@@ -2045,12 +2541,13 @@ __aicore__ inline void PadV3GradGather<T,modeName>::FoldHWAxis(int64_t factor,
  * @brief 折叠 W 轴并输出（用于 FoldCHWAxis）
  *
  * 对每个有效通道（factor * outC 个），折叠 W 轴并输出到 outputAddr。
- *
- * 优化策略：
- * - 只调用一次 GenerateWAxisIndices（以 n=0,c=0 的初始偏移 cOffset0）生成基准索引
- * - 预计算 c 轴通道偏移寄存器（+hwSize）和 n 轴通道偏移寄存器（+(leftPadC+outC+rightPadC)*hwSize）
- * - ZERO_PAD 位置（leftIdx/rightIdx == 0）的通道偏移固定为 0，保持指向 ZERO_PAD 区域
- * - 双层循环中通过寄存器加法替代重复的 GenerateWAxisIndices 调用
+ * N×C 批处理：
+ * - 将 N 和 C 展平为一维 ncTotal = factor * outC，以 elemPerNC = outH * outW 为单位分批
+ * - ncPerVF = VL_RANGE_CNT / elemPerNC，一次 VF 同时处理多个 (n,c)
+ * - 首批：用 GenerateWAxisIndices 生成 (n=0,c=0) 的行模板，
+ *         再用向量分解 x → (ncInBatch, row, col) 扩展为多个 (n,c) 的完整索引
+ * - 后续批：索引整体递增 ncPerVF * ncStride（mid 恒增，left/right ZERO_PAD 位保持 0）
+ * - 当 elemPerNC > VL_RANGE_CNT 时回退：nc 标量循环 + 行批次 VF（保留原逻辑）
  */
 template <typename T, uint8_t modeName>
 __aicore__ inline void PadV3GradGather<T,modeName>::FoldWAxisForCHWAxis(
@@ -2070,182 +2567,626 @@ __aicore__ inline void PadV3GradGather<T,modeName>::FoldWAxisForCHWAxis(
     __local_mem__ GatherRangeType* midOffsetAddr = (__local_mem__ GatherRangeType*)midOffsetLocal.GetPhyAddr();
     __local_mem__ GatherRangeType* rightOffsetAddr = (__local_mem__ GatherRangeType*)rightOffsetLocal.GetPhyAddr();
 
-    int64_t maxElements = VL_RANGE_CNT;
-    int64_t rowsPerBatch = maxElements / outW;
-    if (rowsPerBatch < 1) rowsPerBatch = 1;
-
-    uint32_t elementsPerBatch = static_cast<uint32_t>(rowsPerBatch * outW);
-    GatherRangeType batchOffset = static_cast<GatherRangeType>(rowsPerBatch * width);
-    int64_t totalLoops = (outH + rowsPerBatch - 1) / rowsPerBatch;
-
-    // 生成初始索引（只调用一次，基于 n=0,c=0 的通道偏移）
-    uint64_t cOffset0 = static_cast<uint64_t>(leftPadC) * hwSize;
-    GenerateWAxisIndices(cOffset0, static_cast<uint16_t>(rowsPerBatch), static_cast<uint16_t>(outW),
-        static_cast<uint16_t>(width), leftPadW, rightPadW, leftPadH, batchOffset,
-        midIdxAddr, leftIdxAddr, rightIdxAddr, midOffsetAddr, leftOffsetAddr, rightOffsetAddr);
-
-    __VEC_SCOPE__
-    {
-        uint16_t sregFactor = factor;
-        AscendC::Reg::UnalignRegForStore ureg1;
-
-        AscendC::MicroAPI::MaskReg idxMask = AscendC::MicroAPI::UpdateMask<GatherIdxType>(elementsPerBatch);
-
-        __local_mem__ GatherIdxType* midIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(midIdxAddr);
-        __local_mem__ GatherIdxType* leftIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(leftIdxAddr);
-        __local_mem__ GatherIdxType* rightIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightIdxAddr);
-
         __local_mem__ GatherIdxType* midOffsetAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(midOffsetAddr);
-        __local_mem__ GatherIdxType* leftOffsetAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(leftOffsetAddr);
-        __local_mem__ GatherIdxType* rightOffsetAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightOffsetAddr);
+    __local_mem__ GatherIdxType* leftOffsetAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(leftOffsetAddr);
+    __local_mem__ GatherIdxType* rightOffsetAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightOffsetAddr);
 
-        // ===== 加载初始索引到全局基准寄存器（n=0,c=0 时的值）=====
-        AscendC::MicroAPI::RegTensor<GatherIdxType> baseMidIdxReg;
-        AscendC::MicroAPI::DataCopy(baseMidIdxReg, midIdxAddrU);
+    // 每个 (n,c) 对应的输出元素数
+    int64_t elemPerNC = outH * outW;
+    // n 轴步长：整个 C 维度（含 pad）的元素数
+    int64_t nStride = static_cast<int64_t>(leftPadC + outC + rightPad_[dimNum_ - 3]) * static_cast<int64_t>(hwSize);
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> baseLeftIdxReg;
-        AscendC::MicroAPI::DataCopy(baseLeftIdxReg, leftIdxAddrU);
+    // ===== 优化路径：N×C 批处理（elemPerNC <= VL_RANGE_CNT）=====
+    // 索引公式（c 为输出 C 通道号 0~outC-1，对应输入第 leftPadC+c 个通道）：
+    //   midIdx   = n*nStride + c*hwSize + baseOffset + row*width + col
+    //   baseOffset = leftPadC*hwSize + leftPadH*width + ZERO_PAD_CNT + leftPadW
+    //   leftIdx  = midIdx - 2*col         (reflect, 0 < col <= leftPadW)
+    //            = midIdx - 2*col - 1     (symmetric, col < leftPadW)
+    //            = 0                      (invalid)
+    //   rightIdx = midIdx + 2*(outW-1-col)     (reflect, outW-1-rightPadW <= col < outW-1)
+    //            = midIdx + 2*(outW-1-col) + 1 (symmetric, col >= outW-rightPadW)
+    //            = 0                           (invalid)
+    if (elemPerNC <= static_cast<int64_t>(VL_RANGE_CNT)) {
+        int64_t ncPerVF = static_cast<int64_t>(VL_RANGE_CNT) / elemPerNC;
+        if (ncPerVF < 1) ncPerVF = 1;
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> baseRightIdxReg;
-        AscendC::MicroAPI::DataCopy(baseRightIdxReg, rightIdxAddrU);
+        int64_t ncTotal = factor * outC;
+        int64_t curNC = Std::min<int64_t>(ncPerVF, ncTotal);
+        int64_t totalElem = curNC * elemPerNC;
 
-        // 加载行偏移到寄存器
-        AscendC::MicroAPI::RegTensor<GatherIdxType> midOffsetReg;
-        AscendC::MicroAPI::DataCopy(midOffsetReg, midOffsetAddrU);
+        // baseOffset：(n=0,c=0,row=0,col=0) 时 midIdx 中去掉 col 后的常量部分
+        // c 是输出 C 通道号（0~outC-1），对应输入中第 leftPadC+c 个通道，
+        // 所以需要加上 leftPadC*hwSize 作为 C 轴基础偏移
+        GatherRangeType baseOffset = static_cast<GatherRangeType>(
+            static_cast<int64_t>(leftPadC) * static_cast<int64_t>(hwSize) +
+            static_cast<int64_t>(leftPadH) * width + ZERO_PAD_CNT + leftPadW);
+        
+        GatherRangeType nStrideR = static_cast<GatherRangeType>(nStride);
+        GatherRangeType hwSizeR = static_cast<GatherRangeType>(hwSize);
+        GatherRangeType widthR = static_cast<GatherRangeType>(width);
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> leftOffsetReg;
-        AscendC::MicroAPI::DataCopy(leftOffsetReg, leftOffsetAddrU);
+        GatherIdxType midStep = 0;
+        int64_t cInc = 0;
+        if (ncTotal > ncPerVF) {
+            int64_t nInc = ncPerVF / outC;
+            cInc = ncPerVF % outC;
+            midStep = static_cast<GatherIdxType>(nInc * nStride + cInc * static_cast<int64_t>(hwSize));
+        }
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> rightOffsetReg;
-        AscendC::MicroAPI::DataCopy(rightOffsetReg, rightOffsetAddrU);
+        __VEC_SCOPE__
+        {
+            __local_mem__ PromoteDataT* sregOutputAddr = outputAddr;
 
-        // ===== 计算通道偏移寄存器 =====
-        GatherIdxType hwSizeU = static_cast<GatherIdxType>(hwSize);
+            AscendC::Reg::UnalignRegForStore ureg1;
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> zeroReg;
-        AscendC::MicroAPI::Duplicate(zeroReg, static_cast<GatherIdxType>(0), idxMask);
+            uint32_t vLen = static_cast<uint32_t>(totalElem);
+            uint32_t tmpLen = vLen;
+            uint32_t maskLen = vLen;
 
-        // mid c 轴偏移：所有位置都是 hwSize（mid 索引总是有效的）
-        AscendC::MicroAPI::RegTensor<GatherIdxType> midCChanOffsetReg;
-        AscendC::MicroAPI::Duplicate(midCChanOffsetReg, hwSizeU, idxMask);
+            // ===== 首批：全用 GatherRangeType 计算索引 =====
+            AscendC::MicroAPI::MaskReg fullMask = AscendC::MicroAPI::UpdateMask<GatherRangeType>(vLen);
 
-        // left c 轴偏移：有效位置（baseLeftIdxReg > 0）是 hwSize，ZERO_PAD 位置是 0
-        AscendC::MicroAPI::RegTensor<GatherIdxType> leftCChanOffsetReg;
-        AscendC::MicroAPI::Duplicate(leftCChanOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            // x → (ncInBatch, row, col) 三级分解
+            AscendC::MicroAPI::RegTensor<GatherRangeType> xReg;
+            AscendC::MicroAPI::Arange(xReg, static_cast<GatherRangeType>(0));
 
-        AscendC::MicroAPI::MaskReg leftValidMask;
-        AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(leftValidMask, baseLeftIdxReg, zeroReg, idxMask);
-        AscendC::MicroAPI::Duplicate(leftCChanOffsetReg, hwSizeU, leftValidMask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> ncInBatchReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> xRemReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> ePerNCReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> tmpReg;
 
-        // right c 轴偏移：同理
-        AscendC::MicroAPI::RegTensor<GatherIdxType> rightCChanOffsetReg;
-        AscendC::MicroAPI::Duplicate(rightCChanOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::Duplicate(ePerNCReg, static_cast<GatherRangeType>(elemPerNC), fullMask);
+            AscendC::MicroAPI::Div(ncInBatchReg, xReg, ePerNCReg, fullMask);
+            AscendC::MicroAPI::Muls(tmpReg, ncInBatchReg, static_cast<GatherRangeType>(elemPerNC), fullMask);
+            AscendC::MicroAPI::Sub(xRemReg, xReg, tmpReg, fullMask);
 
-        AscendC::MicroAPI::MaskReg rightValidMask;
-        AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(rightValidMask, baseRightIdxReg, zeroReg, idxMask);
-        AscendC::MicroAPI::Duplicate(rightCChanOffsetReg, hwSizeU, rightValidMask);
+            AscendC::MicroAPI::RegTensor<GatherRangeType> rowReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> colReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> outWReg;
 
-        // n 轴偏移：整个 C 维度 (leftPadC + outC + rightPadC) * hwSize
-        GatherIdxType nStrideU = static_cast<GatherIdxType>(
-            static_cast<int64_t>(leftPadC + outC + rightPad_[dimNum_ - 3]) * static_cast<int64_t>(hwSize));
-        AscendC::MicroAPI::RegTensor<GatherIdxType> midNOffsetReg;
-        AscendC::MicroAPI::Duplicate(midNOffsetReg, nStrideU, idxMask);
+            AscendC::MicroAPI::Duplicate(outWReg, static_cast<GatherRangeType>(outW), fullMask);
+            AscendC::MicroAPI::Div(rowReg, xRemReg, outWReg, fullMask);
+            AscendC::MicroAPI::Muls(tmpReg, rowReg, static_cast<GatherRangeType>(outW), fullMask);
+            AscendC::MicroAPI::Sub(colReg, xRemReg, tmpReg, fullMask);
 
-        // left/right n 轴偏移：复用 valid mask，ZERO_PAD 位置保持 0
-        AscendC::MicroAPI::RegTensor<GatherIdxType> leftNOffsetReg;
-        AscendC::MicroAPI::Duplicate(leftNOffsetReg, static_cast<GatherIdxType>(0), idxMask);
-        AscendC::MicroAPI::Duplicate(leftNOffsetReg, nStrideU, leftValidMask);
+            // ncOffset = (ncInBatch/outC)*nStride + (ncInBatch%outC)*hwSize
+            AscendC::MicroAPI::RegTensor<GatherRangeType> nIdxReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> cIdxReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> outCReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> ncOffsetReg;
 
-        AscendC::MicroAPI::RegTensor<GatherIdxType> rightNOffsetReg;
-        AscendC::MicroAPI::Duplicate(rightNOffsetReg, static_cast<GatherIdxType>(0), idxMask);
-        AscendC::MicroAPI::Duplicate(rightNOffsetReg, nStrideU, rightValidMask);
+            AscendC::MicroAPI::Duplicate(outCReg, static_cast<GatherRangeType>(outC), fullMask);
+            AscendC::MicroAPI::Div(nIdxReg, ncInBatchReg, outCReg, fullMask);
+            AscendC::MicroAPI::Muls(tmpReg, nIdxReg, static_cast<GatherRangeType>(outC), fullMask);
+            AscendC::MicroAPI::Sub(cIdxReg, ncInBatchReg, tmpReg, fullMask);
 
-        // ===== n 层基准寄存器（每个 n 循环开始时从全局基准复制）=====
-        AscendC::MicroAPI::RegTensor<GatherIdxType> nMidIdxReg;
-        AscendC::MicroAPI::RegTensor<GatherIdxType> nLeftIdxReg;
-        AscendC::MicroAPI::RegTensor<GatherIdxType> nRightIdxReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> nPartReg;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> cPartReg;
 
-        // 工作寄存器（行循环内使用，每个 c 循环开始时从 n 基准复制）
-        AscendC::MicroAPI::RegTensor<GatherIdxType> midIdxReg;
-        AscendC::MicroAPI::RegTensor<GatherIdxType> leftIdxReg;
-        AscendC::MicroAPI::RegTensor<GatherIdxType> rightIdxReg;
+            AscendC::MicroAPI::Muls(nPartReg, nIdxReg, nStrideR, fullMask);
+            AscendC::MicroAPI::Muls(cPartReg, cIdxReg, hwSizeR, fullMask);
+            AscendC::MicroAPI::Add(ncOffsetReg, nPartReg, cPartReg, fullMask);
 
-        __local_mem__ PromoteDataT* sregMidAddr = midAddr;
+            // row 偏移
+            AscendC::MicroAPI::RegTensor<GatherRangeType> rowOffsetReg;
 
-        for (uint16_t n = 0; n < sregFactor; n++) {
-            // ===== n 循环开始：从全局基准复制到 n 层基准 =====
-            nMidIdxReg = baseMidIdxReg;
-            nLeftIdxReg = baseLeftIdxReg;
-            nRightIdxReg = baseRightIdxReg;
+            AscendC::MicroAPI::Muls(rowOffsetReg, rowReg, widthR, fullMask);
 
-            for (uint16_t c = 0; c < static_cast<uint16_t>(outC); c++) {
-                // ===== c 循环开始：从 n 层基准复制到工作寄存器 =====
-                midIdxReg = nMidIdxReg;
-                leftIdxReg = nLeftIdxReg;
-                rightIdxReg = nRightIdxReg;
+            // midIdx = ncOffset + baseOffset + rowOffset + col
+            AscendC::MicroAPI::RegTensor<GatherRangeType> midIdxR;
 
-                // 处理完整批次
-                for (uint16_t loop = 0; loop < static_cast<uint16_t>(totalLoops - 1); loop++) {
-                    uint32_t curElements = static_cast<uint32_t>(rowsPerBatch * outW);
-                    uint32_t tempCurElements = curElements;
+            AscendC::MicroAPI::Duplicate(midIdxR, baseOffset, fullMask);
+            AscendC::MicroAPI::Add(midIdxR, midIdxR, ncOffsetReg, fullMask);
+            AscendC::MicroAPI::Add(midIdxR, midIdxR, rowOffsetReg, fullMask);
+            AscendC::MicroAPI::Add(midIdxR, midIdxR, colReg, fullMask);
+
+            AscendC::MicroAPI::RegTensor<GatherRangeType> zeroFull;
+
+            AscendC::MicroAPI::Duplicate(zeroFull, static_cast<GatherRangeType>(0), fullMask);
+
+            // ===== leftIdx =====
+            AscendC::MicroAPI::RegTensor<GatherRangeType> leftIdxR;
+            AscendC::MicroAPI::RegTensor<GatherRangeType> col2Reg;
+
+            AscendC::MicroAPI::Muls(col2Reg, colReg, static_cast<GatherRangeType>(2), fullMask);
+            
+            if (leftPadW > 0) {
+                AscendC::MicroAPI::RegTensor<GatherRangeType> leftPadWFull;
+
+                AscendC::MicroAPI::Duplicate(leftPadWFull, static_cast<GatherRangeType>(leftPadW), fullMask);
+
+                if constexpr (IS_REFLECT) {
+                    // leftIdx = midIdx - 2*col，valid: 0 < col <= leftPadW
+                    AscendC::MicroAPI::Sub(leftIdxR, midIdxR, col2Reg, fullMask);
+                    // col == 0 → 置 0
+                    AscendC::MicroAPI::MaskReg eqZeroMask;
+                    AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::EQ>(eqZeroMask, colReg, zeroFull, fullMask);
+                    AscendC::MicroAPI::Select(leftIdxR, zeroFull, leftIdxR, eqZeroMask);
+                    // col > leftPadW → 置 0
+                    AscendC::MicroAPI::MaskReg gtLPWMask;
+                    AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(gtLPWMask, colReg, leftPadWFull, fullMask);
+                    AscendC::MicroAPI::Select(leftIdxR, zeroFull, leftIdxR, gtLPWMask);
+                } else {
+                    // leftIdx = midIdx - 2*col - 1，valid: col < leftPadW
+                    AscendC::MicroAPI::Sub(leftIdxR, midIdxR, colReg, fullMask);
+                    AscendC::MicroAPI::Adds(leftIdxR, leftIdxR, static_cast<GatherRangeType>(-1), fullMask);
+                    // col >= leftPadW → 置 0
+                    AscendC::MicroAPI::MaskReg geLPWMask;
+                    AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GE>(geLPWMask, colReg, leftPadWFull, fullMask);
+                    AscendC::MicroAPI::Select(leftIdxR, zeroFull, leftIdxR, geLPWMask);
+                }
+            } else {
+                AscendC::MicroAPI::Duplicate(leftIdxR, static_cast<GatherRangeType>(0), fullMask);
+            }
+
+            // ===== rightIdx =====
+            AscendC::MicroAPI::RegTensor<GatherRangeType> rightIdxR;
+            if (rightPadW > 0) {
+                // 公共部分：outW-1-col
+                AscendC::MicroAPI::RegTensor<GatherRangeType> outW1Reg;
+                AscendC::MicroAPI::RegTensor<GatherRangeType> outW1ColReg;
+                AscendC::MicroAPI::RegTensor<GatherRangeType> rightBase2Reg;
+
+                AscendC::MicroAPI::Duplicate(outW1Reg, static_cast<GatherRangeType>(outW - 1), fullMask);
+                AscendC::MicroAPI::Sub(outW1ColReg, outW1Reg, colReg, fullMask);
+                AscendC::MicroAPI::Muls(rightBase2Reg, outW1ColReg, static_cast<GatherRangeType>(2), fullMask);
+                // rightIdx = midIdx + 2*(outW-1-col)（两种模式共同部分）
+                AscendC::MicroAPI::Add(rightIdxR, midIdxR, rightBase2Reg, fullMask);
+                
+                if constexpr (IS_REFLECT) {
+                    // valid: outW-1-rightPadW <= col < outW-1
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> threshLow, threshHigh;
+                    AscendC::MicroAPI::Duplicate(threshLow,  static_cast<GatherRangeType>(outW - 1 - rightPadW), fullMask);
+                    AscendC::MicroAPI::Duplicate(threshHigh, static_cast<GatherRangeType>(outW - 2), fullMask);
+                    // col < threshLow → 置 0
+                    AscendC::MicroAPI::MaskReg ltMask;
+                    AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::LT>(ltMask, colReg, threshLow, fullMask);
+                    AscendC::MicroAPI::Select(rightIdxR, zeroFull, rightIdxR, ltMask);
+                    // col > threshHigh（即 col >= outW-1）→ 置 0
+                    AscendC::MicroAPI::MaskReg gtMask;
+                    AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(gtMask, colReg, threshHigh, fullMask);
+                    AscendC::MicroAPI::Select(rightIdxR, zeroFull, rightIdxR, gtMask);
+                } else {
+                    // symmetric: +1，valid: col >= outW-rightPadW
+                    AscendC::MicroAPI::Adds(rightIdxR, rightIdxR, static_cast<GatherRangeType>(1), fullMask);
+                    AscendC::MicroAPI::RegTensor<GatherRangeType> threshR;
+                    AscendC::MicroAPI::Duplicate(threshR, static_cast<GatherRangeType>(outW - rightPadW), fullMask);
+                    // col < threshR → 置 0
+                    AscendC::MicroAPI::MaskReg ltMask;
+                    AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::LT>(ltMask, colReg, threshR, fullMask);
+                    AscendC::MicroAPI::Select(rightIdxR, zeroFull, rightIdxR, ltMask);
+                }
+            } else {
+                AscendC::MicroAPI::Duplicate(rightIdxR, static_cast<GatherRangeType>(0), fullMask);
+            }
+
+            // 存到 GatherRangeType* 内存缓冲区
+            AscendC::MicroAPI::DataCopy(midIdxAddr, midIdxR, fullMask);
+            AscendC::MicroAPI::DataCopy(leftIdxAddr, leftIdxR, fullMask);
+            AscendC::MicroAPI::DataCopy(rightIdxAddr, rightIdxR, fullMask);
+
+            // reinterpret 为 GatherIdxType*，加载为 GatherIdxType 寄存器后做数据 Gather
+            __local_mem__ GatherIdxType* midIdxAddrU   = reinterpret_cast<__local_mem__ GatherIdxType*>(midIdxAddr);
+            __local_mem__ GatherIdxType* leftIdxAddrU  = reinterpret_cast<__local_mem__ GatherIdxType*>(leftIdxAddr);
+            __local_mem__ GatherIdxType* rightIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightIdxAddr);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midIdxFull;
+            AscendC::MicroAPI::RegTensor<GatherIdxType> leftIdxFull;
+            AscendC::MicroAPI::RegTensor<GatherIdxType> rightIdxFull;
+
+            AscendC::MicroAPI::DataCopy(midIdxFull, midIdxAddrU);
+            AscendC::MicroAPI::DataCopy(leftIdxFull, leftIdxAddrU);
+            AscendC::MicroAPI::DataCopy(rightIdxFull, rightIdxAddrU);
+
+            AscendC::MicroAPI::MaskReg dataMask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(maskLen);
+
+            AscendC::MicroAPI::RegTensor<PromoteDataT> midD;
+            AscendC::MicroAPI::RegTensor<PromoteDataT> leftD;
+            AscendC::MicroAPI::RegTensor<PromoteDataT> rightD;
+            AscendC::MicroAPI::RegTensor<PromoteDataT> sumD;
+
+            AscendC::MicroAPI::DataCopyGather(midD, midAddr, midIdxFull, dataMask);
+            AscendC::MicroAPI::DataCopyGather(leftD, midAddr, leftIdxFull, dataMask);
+            AscendC::MicroAPI::DataCopyGather(rightD, midAddr, rightIdxFull, dataMask);
+
+            AscendC::MicroAPI::Add(sumD, midD, leftD,  dataMask);
+            AscendC::MicroAPI::Add(sumD, sumD, rightD, dataMask);
+
+            AscendC::Reg::StoreUnAlign(sregOutputAddr, sumD, ureg1, tmpLen);
+            if (ncTotal <= ncPerVF) {
+                AscendC::Reg::StoreUnAlignPost(sregOutputAddr, ureg1, 0);
+            }
+
+            // ===== 后续批次：cInc==0 用增量更新，cInc!=0 用完整重计算 =====
+            if (ncTotal > ncPerVF) {
+                int64_t ncBase = ncPerVF;
+                if (cInc == 0) {
+                    // cInc==0：每批次 n 均匀递增，增量更新索引即可
+                    AscendC::MicroAPI::RegTensor<GatherIdxType> curMidIdx;
+                    curMidIdx = midIdxFull;
+
+                    AscendC::MicroAPI::RegTensor<GatherIdxType> curLeftIdx;
+                    curLeftIdx = leftIdxFull;
+
+                    AscendC::MicroAPI::RegTensor<GatherIdxType> curRightIdx;
+                    curRightIdx = rightIdxFull;
+
+                    uint32_t fullVLen = static_cast<uint32_t>(curNC * elemPerNC);
+                    uint32_t idxMaskLen = fullVLen;
+
+                    AscendC::MicroAPI::MaskReg fullMaskInc = AscendC::MicroAPI::UpdateMask<GatherIdxType>(idxMaskLen);
+
+                    AscendC::MicroAPI::RegTensor<GatherIdxType> zeroFull2;
+                    AscendC::MicroAPI::Duplicate(zeroFull2, static_cast<GatherIdxType>(0), fullMaskInc);
+
+                    AscendC::MicroAPI::MaskReg lValid2;
+                    AscendC::MicroAPI::MaskReg rValid2;
+
+                    AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(lValid2, curLeftIdx, zeroFull2, fullMaskInc);
+                    AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(rValid2, curRightIdx, zeroFull2, fullMaskInc);
+
+                    AscendC::MicroAPI::RegTensor<GatherIdxType> midStepReg;
+                    AscendC::MicroAPI::RegTensor<GatherIdxType> leftStepReg;
+                    AscendC::MicroAPI::RegTensor<GatherIdxType> rightStepReg;
+
+                    uint32_t sregStep = midStep;
+
+                    AscendC::MicroAPI::Duplicate(midStepReg, sregStep, fullMaskInc);
+                    AscendC::MicroAPI::Duplicate(leftStepReg, static_cast<GatherIdxType>(0), fullMaskInc);
+                    AscendC::MicroAPI::Duplicate(rightStepReg, static_cast<GatherIdxType>(0), fullMaskInc);
+
+                    AscendC::MicroAPI::Duplicate<GatherIdxType, MicroAPI::MaskMergeMode::ZEROING, GatherIdxType>(leftStepReg, sregStep, lValid2);
+                    AscendC::MicroAPI::Duplicate<GatherIdxType, MicroAPI::MaskMergeMode::ZEROING, GatherIdxType>(rightStepReg, sregStep, rValid2);
+
+                    while (ncBase < ncTotal) {
+                        int64_t curNC2 = Std::min<int64_t>(ncPerVF, ncTotal - ncBase);
+                        int64_t totalElem2 = curNC2 * elemPerNC;
+                        uint32_t vLen2 = static_cast<uint32_t>(totalElem2);
+                        uint32_t batchMaskLen = vLen2;
+                        uint32_t tmpLen2 = vLen2;
+
+                        AscendC::MicroAPI::MaskReg batchMask = AscendC::MicroAPI::UpdateMask<GatherIdxType>(batchMaskLen);
+                        AscendC::MicroAPI::MaskReg dataMask2 = AscendC::MicroAPI::UpdateMask<PromoteDataT>(vLen2);
+
+                        AscendC::MicroAPI::Add(curMidIdx, curMidIdx, midStepReg, batchMask);
+                        AscendC::MicroAPI::Add(curLeftIdx, curLeftIdx, leftStepReg, lValid2);
+                        AscendC::MicroAPI::Add(curRightIdx, curRightIdx, rightStepReg, rValid2);
+
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> midD2;
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> leftD2;
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> rightD2;
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> sumD2;
+
+                        AscendC::MicroAPI::DataCopyGather(midD2, midAddr, curMidIdx, dataMask2);
+                        AscendC::MicroAPI::DataCopyGather(leftD2, midAddr, curLeftIdx, dataMask2);
+                        AscendC::MicroAPI::DataCopyGather(rightD2, midAddr, curRightIdx, dataMask2);
+
+                        AscendC::MicroAPI::Add(sumD2, midD2, leftD2, dataMask2);
+                        AscendC::MicroAPI::Add(sumD2, sumD2, rightD2, dataMask2);
+
+                        AscendC::Reg::StoreUnAlign(sregOutputAddr, sumD2, ureg1, tmpLen2);
+                        if (ncBase + ncPerVF >= ncTotal) {
+                            AscendC::Reg::StoreUnAlignPost(sregOutputAddr, ureg1, 0);
+                        }
+                        ncBase += ncPerVF;
+                    }
+                } else {
+                    // cInc!=0：批次跨 N 轴边界，每批次完整重计算索引
+                    while (ncBase < ncTotal) {
+                        int64_t curNC2 = Std::min<int64_t>(ncPerVF, ncTotal - ncBase);
+                        int64_t totalElem2 = curNC2 * elemPerNC;
+                        uint32_t vLen2 = static_cast<uint32_t>(totalElem2);
+                        uint32_t tempVLen21 = vLen2;
+                        uint32_t tempVLen22 = vLen2;
+
+                        AscendC::MicroAPI::MaskReg fullMask2 = AscendC::MicroAPI::UpdateMask<GatherRangeType>(tempVLen21);
+                        AscendC::MicroAPI::MaskReg dataMask2 = AscendC::MicroAPI::UpdateMask<PromoteDataT>(tempVLen22);
+
+                        // 重新计算当前批次的索引（x → ncInBatch → n,c → row,col → midIdx/leftIdx/rightIdx）
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> xReg2;
+                        AscendC::MicroAPI::Arange(xReg2, static_cast<GatherRangeType>(0));
+
+                        // ncInBatch = x / elemPerNC（当前批次内的 nc 索引）
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> ncInBatchReg2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> xRemReg2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> ePerNCReg2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> tmpReg2;
+                        
+                        AscendC::MicroAPI::Duplicate(ePerNCReg2, static_cast<GatherRangeType>(elemPerNC), fullMask2);
+                        AscendC::MicroAPI::Div(ncInBatchReg2, xReg2, ePerNCReg2, fullMask2);
+                        AscendC::MicroAPI::Muls(tmpReg2, ncInBatchReg2, static_cast<GatherRangeType>(elemPerNC), fullMask2);
+                        AscendC::MicroAPI::Sub(xRemReg2, xReg2, tmpReg2, fullMask2);
+
+                        // 全局 nc 索引 = ncBase + ncInBatch
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> ncGlobalReg;
+                        AscendC::MicroAPI::Adds(ncGlobalReg, ncInBatchReg2, static_cast<GatherRangeType>(ncBase), fullMask2);
+
+                        // row = xRem / outW, col = xRem % outW
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> rowReg2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> colReg2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> outWReg2;
+
+                        AscendC::MicroAPI::Duplicate(outWReg2, static_cast<GatherRangeType>(outW), fullMask2);
+                        AscendC::MicroAPI::Div(rowReg2, xRemReg2, outWReg2, fullMask2);
+                        AscendC::MicroAPI::Muls(tmpReg2, rowReg2, static_cast<GatherRangeType>(outW), fullMask2);
+                        AscendC::MicroAPI::Sub(colReg2, xRemReg2, tmpReg2, fullMask2);
+
+                        // n = ncGlobal / outC, c = ncGlobal % outC
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> nIdxReg2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> cIdxReg2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> outCReg2;
+
+                        AscendC::MicroAPI::Duplicate(outCReg2, static_cast<GatherRangeType>(outC), fullMask2);
+                        AscendC::MicroAPI::Div(nIdxReg2, ncGlobalReg, outCReg2, fullMask2);
+                        AscendC::MicroAPI::Muls(tmpReg2, nIdxReg2, static_cast<GatherRangeType>(outC), fullMask2);
+                        AscendC::MicroAPI::Sub(cIdxReg2, ncGlobalReg, tmpReg2, fullMask2);
+
+                        // ncOffset = n*nStride + c*hwSize
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> nPartReg2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> cPartReg2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> ncOffsetReg2;
+
+                        AscendC::MicroAPI::Muls(nPartReg2, nIdxReg2, nStrideR, fullMask2);
+                        AscendC::MicroAPI::Muls(cPartReg2, cIdxReg2, hwSizeR, fullMask2);
+                        AscendC::MicroAPI::Add(ncOffsetReg2, nPartReg2, cPartReg2, fullMask2);
+
+                        // rowOffset = row * width
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> rowOffsetReg2;
+                        AscendC::MicroAPI::Muls(rowOffsetReg2, rowReg2, widthR, fullMask2);
+
+                        // midIdx = ncOffset + baseOffset + rowOffset + col
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> midIdxR2;
+                        AscendC::MicroAPI::Duplicate(midIdxR2, baseOffset, fullMask2);
+                        AscendC::MicroAPI::Add(midIdxR2, midIdxR2, ncOffsetReg2, fullMask2);
+                        AscendC::MicroAPI::Add(midIdxR2, midIdxR2, rowOffsetReg2, fullMask2);
+                        AscendC::MicroAPI::Add(midIdxR2, midIdxR2, colReg2, fullMask2);
+
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> zeroFull2;
+                        AscendC::MicroAPI::Duplicate(zeroFull2, static_cast<GatherRangeType>(0), fullMask2);
+
+                        // 计算 leftIdx 和 rightIdx（与首批逻辑相同）
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> leftIdxR2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> rightIdxR2;
+                        AscendC::MicroAPI::RegTensor<GatherRangeType> col2Reg2;
+
+                        AscendC::MicroAPI::Muls(col2Reg2, colReg2, static_cast<GatherRangeType>(2), fullMask2);
+
+                        if (leftPadW > 0) {
+                            AscendC::MicroAPI::RegTensor<GatherRangeType> leftPadWFull2;
+                            AscendC::MicroAPI::Duplicate(leftPadWFull2, static_cast<GatherRangeType>(leftPadW), fullMask2);
+                            if constexpr (IS_REFLECT) {
+                                AscendC::MicroAPI::Sub(leftIdxR2, midIdxR2, col2Reg2, fullMask2);
+                                AscendC::MicroAPI::MaskReg eqZeroMask2;
+                                AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::EQ>(eqZeroMask2, colReg2, zeroFull2, fullMask2);
+                                AscendC::MicroAPI::Select(leftIdxR2, zeroFull2, leftIdxR2, eqZeroMask2);
+                                AscendC::MicroAPI::MaskReg gtLPWMask2;
+                                AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(gtLPWMask2, colReg2, leftPadWFull2, fullMask2);
+                                AscendC::MicroAPI::Select(leftIdxR2, zeroFull2, leftIdxR2, gtLPWMask2);
+                            } else {
+                                AscendC::MicroAPI::Sub(leftIdxR2, midIdxR2, col2Reg2, fullMask2);
+                                AscendC::MicroAPI::Adds(leftIdxR2, leftIdxR2, static_cast<GatherRangeType>(-1), fullMask2);
+                                AscendC::MicroAPI::MaskReg geLPWMask2;
+                                AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GE>(geLPWMask2, colReg2, leftPadWFull2, fullMask2);
+                                AscendC::MicroAPI::Select(leftIdxR2, zeroFull2, leftIdxR2, geLPWMask2);
+                            }
+                        } else {
+                            AscendC::MicroAPI::Duplicate(leftIdxR2, static_cast<GatherRangeType>(0), fullMask2);
+                        }
+
+                        if (rightPadW > 0) {
+                            AscendC::MicroAPI::RegTensor<GatherRangeType> outW1Reg2;
+                            AscendC::MicroAPI::RegTensor<GatherRangeType> outW1ColReg2;
+                            AscendC::MicroAPI::RegTensor<GatherRangeType> rightBase2Reg2;
+
+                            AscendC::MicroAPI::Duplicate(outW1Reg2, static_cast<GatherRangeType>(outW - 1), fullMask2);
+                            AscendC::MicroAPI::Sub(outW1ColReg2, outW1Reg2, colReg2, fullMask2);
+                            AscendC::MicroAPI::Muls(rightBase2Reg2, outW1ColReg2, static_cast<GatherRangeType>(2), fullMask2);
+                            AscendC::MicroAPI::Add(rightIdxR2, midIdxR2, rightBase2Reg2, fullMask2);
+
+                            if constexpr (IS_REFLECT) {
+                                AscendC::MicroAPI::RegTensor<GatherRangeType> threshLow2;
+                                AscendC::MicroAPI::RegTensor<GatherRangeType> threshHigh2;
+
+                                AscendC::MicroAPI::Duplicate(threshLow2, static_cast<GatherRangeType>(outW - 1 - rightPadW), fullMask2);
+                                AscendC::MicroAPI::Duplicate(threshHigh2, static_cast<GatherRangeType>(outW - 2), fullMask2);
+                                AscendC::MicroAPI::MaskReg ltMask2;
+                                AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::LT>(ltMask2, colReg2, threshLow2, fullMask2);
+                                AscendC::MicroAPI::Select(rightIdxR2, zeroFull2, rightIdxR2, ltMask2);
+                                AscendC::MicroAPI::MaskReg gtMask2;
+                                AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::GT>(gtMask2, colReg2, threshHigh2, fullMask2);
+                                AscendC::MicroAPI::Select(rightIdxR2, zeroFull2, rightIdxR2, gtMask2);
+                            } else {
+                                AscendC::MicroAPI::Adds(rightIdxR2, rightIdxR2, static_cast<GatherRangeType>(1), fullMask2);
+                                AscendC::MicroAPI::RegTensor<GatherRangeType> threshR2;
+                                AscendC::MicroAPI::Duplicate(threshR2, static_cast<GatherRangeType>(outW - rightPadW), fullMask2);
+                                AscendC::MicroAPI::MaskReg ltMask2;
+                                AscendC::MicroAPI::Compare<GatherRangeType, CMPMODE::LT>(ltMask2, colReg2, threshR2, fullMask2);
+                                AscendC::MicroAPI::Select(rightIdxR2, zeroFull2, rightIdxR2, ltMask2);
+                            }
+                        } else {
+                            AscendC::MicroAPI::Duplicate(rightIdxR2, static_cast<GatherRangeType>(0), fullMask2);
+                        }
+
+                        // 转换为 GatherIdxType 并执行 Gather
+                        AscendC::MicroAPI::DataCopy(midIdxAddr, midIdxR2, fullMask2);
+                        AscendC::MicroAPI::DataCopy(leftIdxAddr, leftIdxR2, fullMask2);
+                        AscendC::MicroAPI::DataCopy(rightIdxAddr, rightIdxR2, fullMask2);
+
+                        __local_mem__ GatherIdxType* midIdxAddrU2 = reinterpret_cast<__local_mem__ GatherIdxType*>(midIdxAddr);
+                        __local_mem__ GatherIdxType* leftIdxAddrU2 = reinterpret_cast<__local_mem__ GatherIdxType*>(leftIdxAddr);
+                        __local_mem__ GatherIdxType* rightIdxAddrU2 = reinterpret_cast<__local_mem__ GatherIdxType*>(rightIdxAddr);
+
+                        AscendC::MicroAPI::RegTensor<GatherIdxType> midIdxFull2;
+                        AscendC::MicroAPI::RegTensor<GatherIdxType> leftIdxFull2;
+                        AscendC::MicroAPI::RegTensor<GatherIdxType> rightIdxFull2;
+
+                        AscendC::MicroAPI::DataCopy(midIdxFull2, midIdxAddrU2);
+                        AscendC::MicroAPI::DataCopy(leftIdxFull2, leftIdxAddrU2);
+                        AscendC::MicroAPI::DataCopy(rightIdxFull2, rightIdxAddrU2);
+
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> midD2;
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> leftD2;
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> rightD2;
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> sumD2;
+
+                        AscendC::MicroAPI::DataCopyGather(midD2, midAddr, midIdxFull2, dataMask2);
+                        AscendC::MicroAPI::DataCopyGather(leftD2, midAddr, leftIdxFull2, dataMask2);
+                        AscendC::MicroAPI::DataCopyGather(rightD2, midAddr, rightIdxFull2, dataMask2);
+
+                        AscendC::MicroAPI::Add(sumD2, midD2, leftD2, dataMask2);
+                        AscendC::MicroAPI::Add(sumD2, sumD2, rightD2, dataMask2);
+
+                        AscendC::Reg::StoreUnAlign(sregOutputAddr, sumD2, ureg1, static_cast<uint32_t>(vLen2));
+                        if (ncBase + ncPerVF >= ncTotal) {
+                            AscendC::Reg::StoreUnAlignPost(sregOutputAddr, ureg1, 0);
+                        }
+                        ncBase += ncPerVF;
+                    }
+                }  // end else (cInc != 0)
+            }  // end if (ncTotal > ncPerVF)
+        }
+    } else {
+        // ===== 回退路径：elemPerNC > VL_RANGE_CNT，行批次 VF + nc 标量循环 =====
+        int64_t rowsPerBatch = static_cast<int64_t>(VL_RANGE_CNT) / outW;
+        if (rowsPerBatch < 1) rowsPerBatch = 1;
+
+        uint32_t elementsPerBatch = static_cast<uint32_t>(rowsPerBatch * outW);
+        GatherRangeType batchOffset = static_cast<GatherRangeType>(rowsPerBatch * width);
+        int64_t totalLoops = (outH + rowsPerBatch - 1) / rowsPerBatch;
+
+        uint64_t cOffset0 = static_cast<uint64_t>(leftPadC) * hwSize;
+        GenerateWAxisIndices(cOffset0, static_cast<uint16_t>(rowsPerBatch), static_cast<uint16_t>(outW),
+            static_cast<uint16_t>(width), leftPadW, rightPadW, leftPadH, batchOffset,
+            midIdxAddr, leftIdxAddr, rightIdxAddr, midOffsetAddr, leftOffsetAddr, rightOffsetAddr);
+
+        __VEC_SCOPE__
+        {
+            AscendC::Reg::UnalignRegForStore ureg1;
+            uint32_t maskLen = elementsPerBatch;
+            AscendC::MicroAPI::MaskReg idxMask = AscendC::MicroAPI::UpdateMask<GatherIdxType>(maskLen);
+
+            __local_mem__ GatherIdxType* midIdxAddrU   = reinterpret_cast<__local_mem__ GatherIdxType*>(midIdxAddr);
+            __local_mem__ GatherIdxType* leftIdxAddrU  = reinterpret_cast<__local_mem__ GatherIdxType*>(leftIdxAddr);
+            __local_mem__ GatherIdxType* rightIdxAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightIdxAddr);
+
+            __local_mem__ GatherIdxType* midOffsetAddrU   = reinterpret_cast<__local_mem__ GatherIdxType*>(midOffsetAddr);
+            __local_mem__ GatherIdxType* leftOffsetAddrU  = reinterpret_cast<__local_mem__ GatherIdxType*>(leftOffsetAddr);
+            __local_mem__ GatherIdxType* rightOffsetAddrU = reinterpret_cast<__local_mem__ GatherIdxType*>(rightOffsetAddr);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> baseMidIdxReg;
+            AscendC::MicroAPI::RegTensor<GatherIdxType> baseLeftIdxReg;
+            AscendC::MicroAPI::RegTensor<GatherIdxType> baseRightIdxReg;
+
+            AscendC::MicroAPI::DataCopy(baseMidIdxReg, midIdxAddrU);
+            AscendC::MicroAPI::DataCopy(baseLeftIdxReg, leftIdxAddrU);
+            AscendC::MicroAPI::DataCopy(baseRightIdxReg, rightIdxAddrU);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midOffsetReg;
+            AscendC::MicroAPI::RegTensor<GatherIdxType> leftOffsetReg;
+            AscendC::MicroAPI::RegTensor<GatherIdxType> rightOffsetReg;
+
+            AscendC::MicroAPI::DataCopy(midOffsetReg, midOffsetAddrU);
+            AscendC::MicroAPI::DataCopy(leftOffsetReg, leftOffsetAddrU);
+            AscendC::MicroAPI::DataCopy(rightOffsetReg, rightOffsetAddrU);
+
+            GatherIdxType hwSizeU  = static_cast<GatherIdxType>(hwSize);
+            GatherIdxType nStride_ = static_cast<GatherIdxType>(nStride);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> zeroReg;
+            AscendC::MicroAPI::Duplicate(zeroReg, static_cast<GatherIdxType>(0), idxMask);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midCChanOffsetReg;
+            AscendC::MicroAPI::Duplicate(midCChanOffsetReg, hwSizeU, idxMask);
+
+            AscendC::MicroAPI::MaskReg leftValidMask, rightValidMask;
+            AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(leftValidMask,  baseLeftIdxReg,  zeroReg, idxMask);
+            AscendC::MicroAPI::Compare<GatherIdxType, CMPMODE::GT>(rightValidMask, baseRightIdxReg, zeroReg, idxMask);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> leftCChanOffsetReg, rightCChanOffsetReg;
+            AscendC::MicroAPI::Duplicate(leftCChanOffsetReg,  static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::Duplicate(rightCChanOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::Duplicate(leftCChanOffsetReg,  hwSizeU, leftValidMask);
+            AscendC::MicroAPI::Duplicate(rightCChanOffsetReg, hwSizeU, rightValidMask);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midNOffsetReg, leftNOffsetReg, rightNOffsetReg;
+            AscendC::MicroAPI::Duplicate(midNOffsetReg,   nStride_, idxMask);
+            AscendC::MicroAPI::Duplicate(leftNOffsetReg,  static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::Duplicate(rightNOffsetReg, static_cast<GatherIdxType>(0), idxMask);
+            AscendC::MicroAPI::Duplicate(leftNOffsetReg,  nStride_, leftValidMask);
+            AscendC::MicroAPI::Duplicate(rightNOffsetReg, nStride_, rightValidMask);
+
+            AscendC::MicroAPI::RegTensor<GatherIdxType> nMidIdxReg, nLeftIdxReg, nRightIdxReg;
+            AscendC::MicroAPI::RegTensor<GatherIdxType> midIdxReg, leftIdxReg, rightIdxReg;
+
+            for (uint16_t n = 0; n < static_cast<uint16_t>(factor); n++) {
+                nMidIdxReg   = baseMidIdxReg;
+                nLeftIdxReg  = baseLeftIdxReg;
+                nRightIdxReg = baseRightIdxReg;
+
+                for (uint16_t c = 0; c < static_cast<uint16_t>(outC); c++) {
+                    midIdxReg   = nMidIdxReg;
+                    leftIdxReg  = nLeftIdxReg;
+                    rightIdxReg = nRightIdxReg;
+
+                    for (uint16_t loop = 0; loop < static_cast<uint16_t>(totalLoops - 1); loop++) {
+                        uint32_t curElements = elementsPerBatch;
+                        uint32_t tmpLen = curElements;
+
+                        AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(curElements);
+
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> midDataReg;
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> leftDataReg;
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> rightDataReg;
+                        AscendC::MicroAPI::RegTensor<PromoteDataT> sumReg;
+
+                        AscendC::MicroAPI::DataCopyGather(midDataReg,   midAddr, midIdxReg,   mask);
+                        AscendC::MicroAPI::DataCopyGather(leftDataReg,  midAddr, leftIdxReg,  mask);
+                        AscendC::MicroAPI::DataCopyGather(rightDataReg, midAddr, rightIdxReg, mask);
+
+                        AscendC::MicroAPI::Add(sumReg, midDataReg, leftDataReg, mask);
+                        AscendC::MicroAPI::Add(sumReg, sumReg, rightDataReg, mask);
+
+                        AscendC::Reg::StoreUnAlign(outputAddr, sumReg, ureg1, tmpLen);
+
+                        AscendC::MicroAPI::Add(midIdxReg,   midIdxReg,   midOffsetReg,   idxMask);
+                        AscendC::MicroAPI::Add(leftIdxReg,  leftIdxReg,  leftOffsetReg,  idxMask);
+                        AscendC::MicroAPI::Add(rightIdxReg, rightIdxReg, rightOffsetReg, idxMask);
+                    }
+
+                    // 尾块
+                    int64_t curRows = outH - (totalLoops - 1) * rowsPerBatch;
+                    uint32_t curElements = static_cast<uint32_t>(curRows * outW);
+                    uint32_t tmpLen = curElements;
+
                     AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(curElements);
 
                     AscendC::MicroAPI::RegTensor<PromoteDataT> midDataReg;
-                    AscendC::MicroAPI::DataCopyGather(midDataReg, sregMidAddr, midIdxReg, mask);
-
                     AscendC::MicroAPI::RegTensor<PromoteDataT> leftDataReg;
-                    AscendC::MicroAPI::DataCopyGather(leftDataReg, sregMidAddr, leftIdxReg, mask);
-
                     AscendC::MicroAPI::RegTensor<PromoteDataT> rightDataReg;
-                    AscendC::MicroAPI::DataCopyGather(rightDataReg, sregMidAddr, rightIdxReg, mask);
-
                     AscendC::MicroAPI::RegTensor<PromoteDataT> sumReg;
+
+                    AscendC::MicroAPI::DataCopyGather(midDataReg,   midAddr, midIdxReg,   mask);
+                    AscendC::MicroAPI::DataCopyGather(leftDataReg,  midAddr, leftIdxReg,  mask);
+                    AscendC::MicroAPI::DataCopyGather(rightDataReg, midAddr, rightIdxReg, mask);
+
                     AscendC::MicroAPI::Add(sumReg, midDataReg, leftDataReg, mask);
                     AscendC::MicroAPI::Add(sumReg, sumReg, rightDataReg, mask);
+                    
+                    AscendC::Reg::StoreUnAlign(outputAddr, sumReg, ureg1, tmpLen);
+                    AscendC::Reg::StoreUnAlignPost(outputAddr, ureg1, 0);
 
-                    AscendC::Reg::StoreUnAlign(outputAddr, sumReg, ureg1, tempCurElements);
-
-                    AscendC::MicroAPI::Add(midIdxReg, midIdxReg, midOffsetReg, idxMask);
-                    AscendC::MicroAPI::Add(leftIdxReg, leftIdxReg, leftOffsetReg, idxMask);
-                    AscendC::MicroAPI::Add(rightIdxReg, rightIdxReg, rightOffsetReg, idxMask);
+                    if (c < static_cast<uint16_t>(outC) - 1) {
+                        AscendC::MicroAPI::Add(nMidIdxReg, nMidIdxReg, midCChanOffsetReg, idxMask);
+                        AscendC::MicroAPI::Add(nLeftIdxReg, nLeftIdxReg, leftCChanOffsetReg, idxMask);
+                        AscendC::MicroAPI::Add(nRightIdxReg, nRightIdxReg, rightCChanOffsetReg, idxMask);
+                    }
                 }
 
-                // 处理尾块
-                int64_t curRows = outH - (totalLoops - 1) * rowsPerBatch;
-                uint32_t curElements = static_cast<uint32_t>(curRows * outW);
-                uint32_t tempCurElements = curElements;
-
-                AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(curElements);
-
-                AscendC::MicroAPI::RegTensor<PromoteDataT> midDataReg;
-                AscendC::MicroAPI::DataCopyGather(midDataReg, sregMidAddr, midIdxReg, mask);
-
-                AscendC::MicroAPI::RegTensor<PromoteDataT> leftDataReg;
-                AscendC::MicroAPI::DataCopyGather(leftDataReg, sregMidAddr, leftIdxReg, mask);
-
-                AscendC::MicroAPI::RegTensor<PromoteDataT> rightDataReg;
-                AscendC::MicroAPI::DataCopyGather(rightDataReg, sregMidAddr, rightIdxReg, mask);
-
-                AscendC::MicroAPI::RegTensor<PromoteDataT> sumReg;
-                AscendC::MicroAPI::Add(sumReg, midDataReg, leftDataReg, mask);
-                AscendC::MicroAPI::Add(sumReg, sumReg, rightDataReg, mask);
-
-                AscendC::Reg::StoreUnAlign(outputAddr, sumReg, ureg1, tempCurElements);
-                AscendC::Reg::StoreUnAlignPost(outputAddr, ureg1, 0);
-
-                // ===== 更新 n 层基准（c 轴偏移，为下一个 c 准备）=====
-                if (c < static_cast<uint16_t>(outC) - 1) {
-                    AscendC::MicroAPI::Add(nMidIdxReg, nMidIdxReg, midCChanOffsetReg, idxMask);
-                    AscendC::MicroAPI::Add(nLeftIdxReg, nLeftIdxReg, leftCChanOffsetReg, idxMask);
-                    AscendC::MicroAPI::Add(nRightIdxReg, nRightIdxReg, rightCChanOffsetReg, idxMask);
+                if (n < static_cast<uint16_t>(factor) - 1) {
+                    AscendC::MicroAPI::Add(baseMidIdxReg, baseMidIdxReg, midNOffsetReg, idxMask);
+                    AscendC::MicroAPI::Add(baseLeftIdxReg, baseLeftIdxReg, leftNOffsetReg, idxMask);
+                    AscendC::MicroAPI::Add(baseRightIdxReg, baseRightIdxReg, rightNOffsetReg, idxMask);
                 }
-            }
-
-            // ===== 更新全局基准（n 轴偏移，为下一个 n 准备）=====
-            if (n < sregFactor - 1) {
-                AscendC::MicroAPI::Add(baseMidIdxReg, baseMidIdxReg, midNOffsetReg, idxMask);
-                AscendC::MicroAPI::Add(baseLeftIdxReg, baseLeftIdxReg, leftNOffsetReg, idxMask);
-                AscendC::MicroAPI::Add(baseRightIdxReg, baseRightIdxReg, rightNOffsetReg, idxMask);
             }
         }
     }
@@ -2312,23 +3253,20 @@ __aicore__ inline void PadV3GradGather<T,modeName>::FoldCHWAxis(int64_t factor,
     __local_mem__ GatherRangeType* rightIdxAddr = (__local_mem__ GatherRangeType*)rightIdxLocal.GetPhyAddr();
 
     // ===== 3. 折叠 C 轴 pad =====
-    // 对每个 factor（N 维度），折叠 C 轴的 left/right pad
-    for (int64_t n = 0; n < factor; n++) {
-        __local_mem__ PromoteDataT* nMidAddr = midAddr + ZERO_PAD_CNT + n * cHeight * hwSize;
-        FoldCAxisPad(hwSize, leftPadC, true, leftPadC, outC, nMidAddr, leftIdxAddr, midIdxAddr);
-        FoldCAxisPad(hwSize, rightPadC, false, leftPadC, outC, nMidAddr, leftIdxAddr, midIdxAddr);
-    }
+    // N 轴已合并进 FoldCAxisPad：当 padCount*hwSize <= VL_RANGE_CNT 时一次 VF 处理多个 N
+    uint64_t cNStride = static_cast<uint64_t>(cHeight) * hwSize;
+    __local_mem__ PromoteDataT* cBaseAddr = midAddr + ZERO_PAD_CNT;
+
+    FoldCAxisPad(hwSize, leftPadC, true, leftPadC, outC, factor, cNStride, cBaseAddr, leftIdxAddr, midIdxAddr);
+    FoldCAxisPad(hwSize, rightPadC, false, leftPadC, outC, factor, cNStride, cBaseAddr, leftIdxAddr, midIdxAddr);
 
     // ===== 4. 折叠 H 轴 pad =====
-    // C 轴折叠后，有效通道数为 outC，FoldHAxisPad 内部通过 factor 参数遍历所有通道
-    for (int64_t n = 0; n < factor; n++) {
-        // 计算当前 N 的第一个有效 C 通道在 midAddr 中的偏移
-        // FoldHAxisPad 内部会加 ZERO_PAD_CNT，所以这里传入时要减去
-        uint64_t nOffset = ZERO_PAD_CNT + n * cHeight * hwSize + leftPadC * hwSize;
-        __local_mem__ PromoteDataT* nMidAddr = midAddr + nOffset - ZERO_PAD_CNT;
-        FoldHAxisPad(outC, hwSize, width, leftPadH, true, leftPadH, outH, nMidAddr, leftIdxAddr, midIdxAddr);
-        FoldHAxisPad(outC, hwSize, width, rightPadH, false, leftPadH, outH, nMidAddr, leftIdxAddr, midIdxAddr);
-    }
+    // N 轴已合并进 FoldHAxisPad：当 outC*width <= VL_RANGE_CNT 时一次 VF 处理多个 N
+    uint64_t hNStride = static_cast<uint64_t>(cHeight) * hwSize;
+    __local_mem__ PromoteDataT* hBaseAddr = midAddr + leftPadC * hwSize;
+    
+    FoldHAxisPad(outC, hwSize, width, leftPadH, true, leftPadH, outH, factor, hNStride, hBaseAddr, leftIdxAddr, midIdxAddr);
+    FoldHAxisPad(outC, hwSize, width, rightPadH, false, leftPadH, outH, factor, hNStride, hBaseAddr, leftIdxAddr, midIdxAddr);
 
     // ===== 5. 折叠 W 轴并输出 =====
     FoldWAxisForCHWAxis(factor, outC, hwSize, width, leftPadC, leftPadH, leftPadW, rightPadW,
