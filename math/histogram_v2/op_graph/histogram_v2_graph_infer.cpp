@@ -29,8 +29,12 @@ static ge::graphStatus HistogramV2InferDataTypeFunc(gert::InferDataTypeContext* 
     ge::DataType outDtype = ge::DT_INT32;
     if (attrs != nullptr) {
         auto yDtypePtr = attrs->GetAttrPointer<int64_t>(1);
-        if (yDtypePtr != nullptr && *yDtypePtr == ge::DT_FLOAT) {
-            outDtype = ge::DT_FLOAT;
+        OP_LOGD(context, "yDtypePtr: %p", yDtypePtr);
+        if (yDtypePtr != nullptr) {
+            OP_LOGD(context, "yDtypePtr value: %ld", *yDtypePtr);
+            if (*yDtypePtr == ge::DT_FLOAT) {
+                outDtype = ge::DT_FLOAT;
+            }
         }
     }
 
