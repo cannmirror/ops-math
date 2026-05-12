@@ -69,6 +69,7 @@ constexpr int64_t TUPLE_INDEX_1 = 1;
 constexpr int64_t TUPLE_INDEX_2 = 2;
 
 constexpr uint32_t BATCH_MODE = 1;
+constexpr int64_t SIMT_DCACHE_SIZE = static_cast<int64_t>(32 * 1024);
 
 template <typename T>
 void GetIntValue(const gert::Tensor* constTensor, gert::Shape& constShape)
@@ -878,6 +879,10 @@ ge::graphStatus TilingForStridedSliceGrad(gert::TilingContext* context)
     // 计算分支mode
     CaluModeParam(inputParams);
     OP_LOGD("CaluModeParam", "current calu mode: %ld", inputParams.caluMode);
+
+    if (inputParams.caluMode == MODE_SIMT) {
+        context->SetLocalMemorySize(inputParams.hardwareUbSize - SIMT_DCACHE_SIZE);
+    }
 
     // 计算分核参数
     CaluSplitCoreParam(inputParams);

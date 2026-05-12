@@ -7,9 +7,9 @@
 #define REGISTER_TILINGDATA_SIZE(tiling_struct, counter)
 
 // Stubs for SIMT built-ins used in copy_out_simt.h (not executed in CPU sim)
-struct __dim3_stub { uint32_t x = 0; uint32_t y = 0; uint32_t z = 0; };
-static thread_local __dim3_stub threadIdx;
-static thread_local __dim3_stub blockDim;
+static inline unsigned int __umulhi(unsigned int x, unsigned int y) {
+    return static_cast<unsigned int>((static_cast<unsigned long long>(x) * y) >> 32);
+}
 
 constexpr int64_t TILING_ARRAY_LEN_EIGHT = 8;
 

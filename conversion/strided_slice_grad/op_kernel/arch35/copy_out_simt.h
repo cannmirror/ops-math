@@ -17,6 +17,8 @@
 #define COPY_OUT_SIMT_H
 
 #include "strided_slice_grad_base.h"
+#include "simt_api/asc_simt.h"
+#include "simt_api/device_functions.h"
 
 namespace StridedSliceGrad
 {
@@ -38,12 +40,12 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_DIM) inline void CopyOut(__local_mem_
 
 #pragma unroll
         for (int32_t k = (MAX_SUPPORT_DIM - inputDimNum); k <= DIM0; k++) { // [8 - inputDimNum, 7]
-            uint32_t t2 = Simt::MulHi(static_cast<uint32_t>(idx), simtB32Local[k]);
+            uint32_t t2 = __umulhi(static_cast<uint32_t>(idx), simtB32Local[k]);
             t2 = t2 + idx;
             uint32_t newIndex = t2 >> simtB32Local[k + MAX_SUPPORT_DIM];
             uint32_t curDimIndex = idx - simtB64Local[k] * newIndex;
             dstIndex += ((simtB64Local[k + MAX_SUPPORT_DIM] + newIndex * simtB64Local[k + MAX_SUPPORT_DIM * 2]) *
-                         simtB64Local[i + MAX_SUPPORT_DIM * 3]);
+                         simtB64Local[k + MAX_SUPPORT_DIM * 3]);
             idx = curDimIndex;
         }
         dstGm[dstIndex] = srcLocal[srcIndex];
@@ -65,8 +67,9 @@ private:
 
 private:
     TPipe pipe_;
-    TQueBind<QuePosition::VECIN, QuePosition::VECOUT, DB_BUFFER> dataQueue_;
-    TBuf<TPosition::VECCALC> simtBuf_;
+    TQue<TPosition::VECIN, DB_BUFFER> dataQueue_;
+    TBuf<TPosition::VECCALC> simtB64Buf_;
+    TBuf<TPosition::VECCALC> simtB32Buf_;
 
     GlobalTensor<T> dstGm_;
     GlobalTensor<T> srcGm_;
@@ -87,9 +90,10 @@ private:
     uint32_t shift_[MAX_SUPPORT_DIM];
     uint32_t m_[MAX_SUPPORT_DIM];
 
-    constexpr static uint32_t SIMT_BUF_SIZE = 512; // actually use 320B
     constexpr static uint32_t SIMT_BUF_B64_NUM = 32;
     constexpr static uint32_t SIMT_BUF_B32_NUM = 16;
+    constexpr static uint32_t SIMT_BUF_B64_SIZE = SIMT_BUF_B64_NUM * sizeof(int64_t);
+    constexpr static uint32_t SIMT_BUF_B32_SIZE = SIMT_BUF_B32_NUM * sizeof(uint32_t);
 
     cce::dim3 threadsPerBlock_{THREAD_DIM};
 };
@@ -121,7 +125,8 @@ __aicore__ inline void CopyOutSimt<T>::Init(GM_ADDR dy, GM_ADDR output, const St
 
     pipe_ = pipeIn;
     pipe_.InitBuffer(dataQueue_, DB_BUFFER, bufferSize_);
-    pipe_.InitBuffer(simtBuf_, SIMT_BUF_SIZE);
+    pipe_.InitBuffer(simtB64Buf_, SIMT_BUF_B64_SIZE);
+    pipe_.InitBuffer(simtB32Buf_, SIMT_BUF_B32_SIZE);
     ConstructDivParams();
 }
 
@@ -129,7 +134,7 @@ template <typename T>
 __aicore__ inline void CopyOutSimt<T>::ConstructDivParams()
 {
     for (uint32_t i = 0; i < MAX_SUPPORT_DIM; i++) {
-        GetUintDivMagicAndShift<uint32_t>(m_[0], shift_[0], fusedSliceInnerShape_[i]);
+        GetUintDivMagicAndShift<uint32_t>(m_[i], shift_[i], fusedSliceInnerShape_[i]);
     }
 }
 
@@ -157,8 +162,8 @@ __aicore__ inline void CopyOutSimt<T>::ProcessPerLoop()
 
     LocalTensor<T> yLocal = dataQueue_.DeQue<T>();
 
-    LocalTensor<int64_t> simtB64Local = simtBuf_.Get<int64_t>(SIMT_BUF_B64_NUM);
-    LocalTensor<uint32_t> simtB32Local = simtBuf_.Get<uint32_t>(SIMT_BUF_B32_NUM);
+    LocalTensor<int64_t> simtB64Local = simtB64Buf_.Get<int64_t>();
+    LocalTensor<uint32_t> simtB32Local = simtB32Buf_.Get<uint32_t>();
 
     for(int i = 0; i < MAX_SUPPORT_DIM; i++) {
         simtB32Local(i) = m_[i];
@@ -171,8 +176,8 @@ __aicore__ inline void CopyOutSimt<T>::ProcessPerLoop()
         simtB64Local(i + SIMT_STRIDES_OFFSET) = strides_[i];
         simtB64Local(i + SIMT_FUSEDOUTPUTINNERSHAPE_OFFSET) = fusedOutputInnerShape_[i];
     }
-
-    Simt::VF_CALL<CopyOut<T>>(Simt::Dim3(threadsPerBlock_), 
+    PipeBarrier<PIPE_ALL>();
+    asc_vf_call<CopyOut<T>>(dim3(threadsPerBlock_), 
                               (__local_mem__ T*)(yLocal.GetPhyAddr()), (__gm__ T*)(dstGm_.GetPhyAddr()),  
                               (__local_mem__ uint32_t*)(simtB32Local.GetPhyAddr()), (__local_mem__ int64_t*)(simtB64Local.GetPhyAddr()),
                               curLoopBlockNum_, blockIdx_, normalCoreProcessNum_,
