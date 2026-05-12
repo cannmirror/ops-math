@@ -67,7 +67,7 @@ aclnnStatus aclnnCat(
     <tr>
       <td>tensors（aclTensorList*）</td>
       <td>输入</td>
-      <td>需要级联的tensor列表，列表长度不超过32，且数据类型需要列表内部构成满足数据类型推导规则（参见<a href="../../../docs/zh/context/互推导关系.md" target="_blank">互推导关系</a>）。</td>
+      <td>数据类型需要列表内部构成满足数据类型推导规则（参见<a href="../../../docs/zh/context/互推导关系.md" target="_blank">互推导关系</a>）。</td>
       <td>-</td>
       <td>FLOAT、FLOAT16、INT32、INT64、INT16、INT8、UINT8、UINT16、UINT32、UINT64、BOOL、DOUBLE、COMPLEX64、BFLOAT16、HIFLOAT8、FLOAT8_E5M2、FLOAT8_E4M3FN、FLOAT8_E8M0、FLOAT4_E1M2、FLOAT4_E2M1</td>
       <td>ND</td>
