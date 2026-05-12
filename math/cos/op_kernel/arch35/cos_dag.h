@@ -32,7 +32,7 @@ using namespace AscendC;
 template<typename T>
 __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void CosSimtCompute(__ubuf__ T* x, __ubuf__ T* y, const int64_t totalNum)
 {
-    for(int64_t i = Simt::GetThreadIdx(); i < totalNum; i += Simt::GetThreadNum()){
+    for(int64_t i = threadIdx.x; i < totalNum; i += blockDim.x){
         y[i] = Simt::Cos(x[i]);
     }
 }
