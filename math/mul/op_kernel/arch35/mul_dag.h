@@ -20,6 +20,10 @@
 #include "atvoss/util/vec.h"
 #include "atvoss/util/placeholder.h"
 
+#ifdef __CCE_AICORE__
+#include "simt_api/asc_simt.h"
+#endif
+
 namespace MulDag {
 using namespace AscendC;
 using namespace Ops::Base;
@@ -101,8 +105,8 @@ template <typename T>
 __simt_vf__ __aicore__
     LAUNCH_BOUND(1024) inline void MulDouble_vf(__ubuf__ T* dst, __ubuf__ T* src1, __ubuf__ T* src2, int count)
 {
-    for (uint32_t index = static_cast<uint32_t>(Simt::GetThreadIdx()); index < count;
-         index += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t index = static_cast<uint32_t>(threadIdx.x); index < count;
+         index += static_cast<uint32_t>(blockDim.x)) {
         U a;
         U b;
         a.d = src1[index];
@@ -362,7 +366,7 @@ struct MulDouble : public Vec::ElemwiseBinaryOP<T, T, T> {
         __ubuf__ T* dst_1 = (__ubuf__ T*)dst.GetPhyAddr();
         __ubuf__ T* src1_1 = (__ubuf__ T*)src1.GetPhyAddr();
         __ubuf__ T* src2_1 = (__ubuf__ T*)src2.GetPhyAddr();
-        AscendC::Simt::VF_CALL<MulDouble_vf<T>>(AscendC::Simt::Dim3{1024}, dst_1, src1_1, src2_1, count);
+        asc_vf_call<MulDouble_vf<T>>(dim3(1024), dst_1, src1_1, src2_1, count);
 #endif
     }
 };

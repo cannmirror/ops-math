@@ -23,6 +23,7 @@
 #include "op_kernel/math_util.h"
 #ifdef __CCE_AICORE__
 #include "op_kernel/platform_util.h"
+#include "simt_api/asc_simt.h"
 #endif
 
 namespace ModOp {
@@ -133,8 +134,8 @@ template <typename T>
 __simt_vf__ __aicore__
     LAUNCH_BOUND(1024) inline void ModIntSimt(__ubuf__ T* dst, __ubuf__ T* src1, __ubuf__ T* src2, int count)
 {
-    for (uint32_t index = static_cast<uint32_t>(Simt::GetThreadIdx()); index < count;
-         index += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t index = static_cast<uint32_t>(threadIdx.x); index < count;
+         index += static_cast<uint32_t>(blockDim.x)) {
         const auto rem = src1[index] % src2[index];
         dst[index] = rem;
     }
@@ -149,7 +150,7 @@ struct ModInt : public Vec::ElemwiseBinaryOP<T, T, T> {
         __ubuf__ T* dst_1 = (__ubuf__ T*)dst.GetPhyAddr();
         __ubuf__ T* src1_1 = (__ubuf__ T*)src1.GetPhyAddr();
         __ubuf__ T* src2_1 = (__ubuf__ T*)src2.GetPhyAddr();
-        AscendC::Simt::VF_CALL<ModIntSimt<T>>(AscendC::Simt::Dim3{1024}, dst_1, src1_1, src2_1, count);
+        asc_vf_call<ModIntSimt<T>>(dim3(1024), dst_1, src1_1, src2_1, count);
 #endif
     }
 };

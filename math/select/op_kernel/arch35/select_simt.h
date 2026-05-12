@@ -17,6 +17,9 @@
 
 #include "kernel_operator.h"
 #include "select_struct.h"
+#ifdef __CCE_AICORE__
+#include "simt_api/asc_simt.h"
+#endif
 
 namespace SelectOp {
 using namespace AscendC;
@@ -49,8 +52,8 @@ template <typename T>
 __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM_LAUNCH_BOUND) inline void SelectSimt<T>::OpSelectSimt(int32_t needCoreNum, 
     int32_t threadNum, int64_t aSize, uint64_t bSize, int64_t currentCoreElements, uint64_t m, uint64_t shift, 
     uint64_t xyIndexBase, __gm__ uint8_t* condition,__gm__ T* x1, __gm__ T* x2, __gm__ T* y) {
-  for (uint64_t index = static_cast<uint64_t>(Simt::GetThreadIdx()); index < currentCoreElements;
-      index += static_cast<uint32_t>(Simt::GetThreadNum())) {
+  for (uint64_t index = static_cast<uint64_t>(threadIdx.x); index < currentCoreElements;
+      index += static_cast<uint32_t>(blockDim.x)) {
     uint64_t xyIndex = xyIndexBase + index;
     uint64_t conditionIdx = Simt::UintDiv(xyIndex, m, shift);
     y[xyIndex] = condition[conditionIdx] ? x1[xyIndex] : x2[xyIndex];
@@ -85,7 +88,7 @@ __aicore__ inline void SelectSimt<T>::Process() {
 
   GetUintDivMagicAndShift(m, shift, bSize);
 
-  Simt::VF_CALL<OpSelectSimt>(Simt::Dim3(threadNum), needCoreNum, threadNum, aSize, bSize, currentCoreElements, m, shift, 
+  asc_vf_call<OpSelectSimt>(dim3(threadNum), needCoreNum, threadNum, aSize, bSize, currentCoreElements, m, shift, 
   xyIndexBase, (__gm__ uint8_t*) (conditionGm_.GetPhyAddr()), (__gm__ T*) (x1Gm_.GetPhyAddr()), (__gm__ T*) (x2Gm_.GetPhyAddr()),
   (__gm__ T*) (yGm_.GetPhyAddr()));
 }

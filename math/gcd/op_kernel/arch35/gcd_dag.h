@@ -20,6 +20,10 @@
 #include "atvoss/util/vec.h"
 #include "atvoss/util/placeholder.h"
 
+#ifdef __CCE_AICORE__
+#include "simt_api/asc_simt.h"
+#endif
+
 using namespace Ops::Base;
 using namespace AscendC;
 
@@ -35,8 +39,8 @@ template <typename T>
 __simt_vf__ __aicore__
     LAUNCH_BOUND(512) inline void GcdVecInt64(__ubuf__ T* dst, __ubuf__ T* src1, __ubuf__ T* src2, int count)
 {
-    for (uint32_t index = static_cast<uint32_t>(AscendC::Simt::GetThreadIdx()); index < count;
-         index += static_cast<uint32_t>(AscendC::Simt::GetThreadNum())) {
+    for (uint32_t index = static_cast<uint32_t>(threadIdx.x); index < count;
+         index += static_cast<uint32_t>(blockDim.x)) {
         U a;
         U b;
         U c;
@@ -111,8 +115,8 @@ template <typename T1, typename T2>
 __simt_vf__ __aicore__
     LAUNCH_BOUND(1024) inline void GcdVec(__ubuf__ T1* dst, __ubuf__ T1* src1, __ubuf__ T1* src2, uint8_t attr, int count)
 {
-    for (uint32_t index = static_cast<uint32_t>(AscendC::Simt::GetThreadIdx()); index < count;
-         index += static_cast<uint32_t>(AscendC::Simt::GetThreadNum())) {
+    for (uint32_t index = static_cast<uint32_t>(threadIdx.x); index < count;
+         index += static_cast<uint32_t>(blockDim.x)) {
         T2 a = static_cast<T2>(src1[index]);
         T2 b = static_cast<T2>(src2[index]);
         if constexpr (!IsSameType<T1, T2>::value) {
@@ -159,15 +163,15 @@ struct GcdNode : public Vec::ElemwiseBinaryOP<T, T, T> {
         __ubuf__ T* src1_1 = (__ubuf__ T*)src1.GetPhyAddr();
         __ubuf__ T* src2_1 = (__ubuf__ T*)src2.GetPhyAddr();
         if constexpr (IsSameType<T, int64_t>::value) {
-            AscendC::Simt::VF_CALL<GcdVecInt64<int64_t>>(AscendC::Simt::Dim3{512}, dst_1, src1_1, src2_1, count);
+            asc_vf_call<GcdVecInt64<int64_t>>(dim3(512), dst_1, src1_1, src2_1, count);
         } else if constexpr (IsSameType<T, int32_t>::value) {
-            AscendC::Simt::VF_CALL<GcdVec<int32_t, uint32_t>>(AscendC::Simt::Dim3{1024}, dst_1, src1_1, src2_1, static_cast<uint8_t>(31), count);
+            asc_vf_call<GcdVec<int32_t, uint32_t>>(dim3(1024), dst_1, src1_1, src2_1, static_cast<uint8_t>(31), count);
         } else if constexpr (IsSameType<T, int16_t>::value) {
-            AscendC::Simt::VF_CALL<GcdVec<int16_t, uint16_t>>(AscendC::Simt::Dim3{1024}, dst_1, src1_1, src2_1, static_cast<uint8_t>(15), count);
+            asc_vf_call<GcdVec<int16_t, uint16_t>>(dim3(1024), dst_1, src1_1, src2_1, static_cast<uint8_t>(15), count);
         } else if constexpr (IsSameType<T, int8_t>::value) {
-            AscendC::Simt::VF_CALL<GcdVec<int8_t, uint8_t>>(AscendC::Simt::Dim3{1024}, dst_1, src1_1, src2_1, static_cast<uint8_t>(7), count);
+            asc_vf_call<GcdVec<int8_t, uint8_t>>(dim3(1024), dst_1, src1_1, src2_1, static_cast<uint8_t>(7), count);
         } else if constexpr (IsSameType<T, uint8_t>::value) {
-            AscendC::Simt::VF_CALL<GcdVec<uint8_t, uint8_t>>(AscendC::Simt::Dim3{1024}, dst_1, src1_1, src2_1, static_cast<uint8_t>(7), count);
+            asc_vf_call<GcdVec<uint8_t, uint8_t>>(dim3(1024), dst_1, src1_1, src2_1, static_cast<uint8_t>(7), count);
         }
 #endif
     }

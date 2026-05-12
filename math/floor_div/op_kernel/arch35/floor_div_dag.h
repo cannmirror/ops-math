@@ -20,6 +20,9 @@
 #include "atvoss/util/vec.h"
 #include "atvoss/util/placeholder.h"
 
+#ifdef __CCE_AICORE__
+#include "simt_api/asc_simt.h"
+#endif
 
 using namespace Ops::Base;
 using namespace AscendC;
@@ -71,8 +74,8 @@ template <typename T>
 __simt_vf__ __aicore__
     LAUNCH_BOUND(1024) inline void FloorDivInt_1(__ubuf__ T* dst, __ubuf__ T* src1, __ubuf__ T* src2, int count)
 {
-    for (uint32_t index = static_cast<uint32_t>(Simt::GetThreadIdx()); index < count;
-         index += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t index = static_cast<uint32_t>(threadIdx.x); index < count;
+         index += static_cast<uint32_t>(blockDim.x)) {
         bool signs_differ = ((src1[index] < 0) != (src2[index] < 0));
         if (signs_differ) {
             const auto quot = src1[index] / src2[index];
@@ -93,7 +96,7 @@ struct FloorDivInt : public Vec::ElemwiseBinaryOP<T, T, T> {
         __ubuf__ T* dst_1 = (__ubuf__ T*)dst.GetPhyAddr();
         __ubuf__ T* src1_1 = (__ubuf__ T*)src1.GetPhyAddr();
         __ubuf__ T* src2_1 = (__ubuf__ T*)src2.GetPhyAddr();
-        AscendC::Simt::VF_CALL<FloorDivInt_1<T>>(AscendC::Simt::Dim3{1024}, dst_1, src1_1, src2_1, count);
+        asc_vf_call<FloorDivInt_1<T>>(dim3(1024), dst_1, src1_1, src2_1, count);
 #endif
     }
 };
