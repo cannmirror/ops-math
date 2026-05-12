@@ -4,6 +4,11 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "kernel_log.h"
 
+ // Stubs for SIMT built-ins used in eye.h (not executed in CPU sim)
+static inline unsigned int __umulhi(unsigned int x, unsigned int y) {
+    return static_cast<unsigned int>((static_cast<unsigned long long>(x) * y) >> 32);
+}
+
 #define REGISTER_TILINGDATA_SIZE(tiling_struct, counter)
 
 struct EyeForAscendCTilingData

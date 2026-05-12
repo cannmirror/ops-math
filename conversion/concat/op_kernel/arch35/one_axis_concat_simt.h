@@ -18,6 +18,7 @@
 #include "concat_base.h"
 #include "kernel_operator.h"
 #include "kernel_operator_list_tensor_intf.h"
+#include "simt_api/asc_simt.h"
 
 namespace Concat {
 
@@ -56,8 +57,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(MAX_THREAD_NUM) inline void ConcatSimt(
 {
     auto src = GetTensorSimtAddr<T>(tensorIdx, x);
     __gm__ T* dst = (__gm__ T*)y;
-    for (uint32_t i = Simt::GetThreadIdx(); i < m * colsSize; i += Simt::GetThreadNum()) {
-        uint32_t t1 = Simt::MulHi(i, magic);
+    for (uint32_t i = threadIdx.x; i < m * colsSize; i += blockDim.x) {
+        uint32_t t1 = __umulhi(i, magic);
         uint32_t numRows = (t1 + i) >> shift;
         uint32_t numCols = i - numRows * colsSize + colsOffset;
         dst[numRows * n + numCols] = src[i];
@@ -78,8 +79,8 @@ __aicore__ inline void OneAxisConcatSimt<T>::ProcessForSimt(GM_ADDR x, GM_ADDR y
         uint32_t shift = 0;
 
         GetUintDivMagicAndShift(magic, shift, colsSize);
-        Simt::VF_CALL<ConcatSimt<T>>(
-            Simt::Dim3(MAX_THREAD_NUM), x, y, tensorIdx, colsSize, colsOffset, tilingData_.catDim0, tilingData_.catDim1,
+        asc_vf_call<ConcatSimt<T>>(
+            dim3(MAX_THREAD_NUM), x, y, tensorIdx, colsSize, colsOffset, tilingData_.catDim0, tilingData_.catDim1,
             magic, shift);
     }
 }

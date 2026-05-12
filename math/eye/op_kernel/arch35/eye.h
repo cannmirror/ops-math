@@ -17,6 +17,7 @@
 #define ASCENDC_EYE_H_
 
 #include "kernel_operator.h"
+#include "simt_api/asc_simt.h"
 
 namespace Eye {
 using namespace AscendC;
@@ -80,9 +81,9 @@ template <typename T, typename U>
 __simt_vf__ __aicore__ LAUNCH_BOUND(USED_THREAD) inline void EyeSimt(
     __gm__ T* y, U allAxis, U perBatchAxis, uint32_t magic, uint32_t shift, int64_t numRows, int64_t numColumns)
 {
-    for (U i = Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx(); i < allAxis; i += Simt::GetBlockNum() * Simt::GetThreadNum()) {
+    for (U i = blockIdx.x * blockDim.x + threadIdx.x; i < allAxis; i += gridDim.x * blockDim.x) {
         if constexpr (sizeof(U) == sizeof(uint32_t)) {
-            uint32_t t1 = Simt::MulHi(i, magic);
+            uint32_t t1 = __umulhi(i, magic);
             t1 = t1 + i;
             uint32_t batchIdx = t1 >> shift;
             uint32_t rowIdx = i - batchIdx * perBatchAxis;
@@ -122,7 +123,7 @@ template <typename T, typename U> __aicore__ inline void EyeKernel<T, U>::Proces
         DumpGmZero();
     }
     SyncAll();
-    Simt::VF_CALL<EyeSimt<T, U>>(Simt::Dim3(USED_THREAD), (__gm__ T*)(y_.GetPhyAddr()),
+    asc_vf_call<EyeSimt<T, U>>(dim3(USED_THREAD), (__gm__ T*)(y_.GetPhyAddr()),
         allAxis_, perBatchAxis_, magic_, shift_, td_.numRows, td_.numColumns);
 }
 } // namespace Eye
