@@ -227,7 +227,7 @@ ge::graphStatus RandomTilingArch35::FillUnifiedSimtTilingData()
     }
 
     OP_CHECK_IF(
-        (simtTilingData_.outputSize <= 0), OP_LOGE(opName_, "outputSize is less than or equal to 0. please check."),
+        (simtTilingData_.outputSize < 0), OP_LOGE(opName_, "outputSize is less than 0. please check."),
         return ge::GRAPH_FAILED);
     ret = config_.getSeedAndOffset(context_, simtTilingData_.seed, simtTilingData_.offset);
     if (ret != ge::GRAPH_SUCCESS) {

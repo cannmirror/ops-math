@@ -44,7 +44,7 @@ inline uint64_t New64() {
 
 namespace RandomUtils {
 
-template<int INPUT_INDEX, int OUTPUT_INDEX>
+template<int INPUT_INDEX, int OUTPUT_INDEX, bool CHECK_OUTPUT_SIZE = true>
 ge::graphStatus GetAndCheckOutputSize(gert::TilingContext* ctx, int64_t& shapeSize)
 {
     gert::Shape constShape;
@@ -59,8 +59,11 @@ ge::graphStatus GetAndCheckOutputSize(gert::TilingContext* ctx, int64_t& shapeSi
     for (uint32_t idx = 0; idx < shapeRank; idx++) {
         shapeSize *= static_cast<int64_t>(constShape.GetDim(idx));
     }
-    OP_CHECK_IF(shapeSize == 0,
-        OP_LOGE(ctx->GetNodeName(), "input shape should not be empty tensor."), return ge::GRAPH_FAILED);
+    if(CHECK_OUTPUT_SIZE) {
+        OP_CHECK_IF(shapeSize == 0,
+            OP_LOGE(ctx->GetNodeName(), "input shape should not be empty tensor."), 
+            return ge::GRAPH_FAILED);
+    }
 
     auto outputShape = ctx->GetOutputShape(OUTPUT_INDEX);
     OP_CHECK_NULL_WITH_CONTEXT(ctx, outputShape);
