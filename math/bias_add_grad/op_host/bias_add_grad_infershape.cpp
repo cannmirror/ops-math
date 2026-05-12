@@ -12,6 +12,7 @@
  * \file bias_add_grad_infershape.cpp
  * \brief
  */
+#include <algorithm>
 #include "log/log.h"
 #include "register/op_impl_registry.h"
 
