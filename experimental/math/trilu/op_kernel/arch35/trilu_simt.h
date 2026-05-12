@@ -15,6 +15,7 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "trilu_tiling_data.h"
 #include "trilu_tiling_key.h"
+#include "simt_api/asc_simt.h"
 
 namespace NsTrilu {
 
@@ -27,11 +28,11 @@ inline void OpTriluSimt(int64_t totalElements, int64_t diagonal, int32_t upper,
 {
     int64_t matrixSize = h * w;
     for (uint64_t index = static_cast<uint64_t>(
-             AscendC::Simt::GetBlockIdx() * AscendC::Simt::GetThreadNum()
-             + AscendC::Simt::GetThreadIdx());
+             blockIdx.x * blockDim.x
+             + threadIdx.x);
          index < static_cast<uint64_t>(totalElements);
          index += static_cast<uint64_t>(
-             AscendC::Simt::GetThreadNum() * AscendC::Simt::GetBlockNum())) {
+             blockDim.x * gridDim.x)) {
         int64_t matrixOffset = static_cast<int64_t>(index) % matrixSize;
         int64_t row = matrixOffset / w;
         int64_t col = matrixOffset % w;
@@ -47,8 +48,8 @@ __aicore__ inline void Process(GM_ADDR x, GM_ADDR y, const TriluTilingData* tili
     int64_t totalElements = tilingData->totalElements;
     __gm__ T* x_gm = (__gm__ T*)x;
     __gm__ T* y_gm = (__gm__ T*)y;
-    AscendC::Simt::VF_CALL<OpTriluSimt<T>>(
-        AscendC::Simt::Dim3(512), totalElements,
+    asc_vf_call<OpTriluSimt<T>>(
+        dim3(512), totalElements,
         tilingData->diagonal, tilingData->upper,
         tilingData->h, tilingData->w,
         x_gm, y_gm);
