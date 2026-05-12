@@ -18,6 +18,7 @@
 
 #include "kernel_operator.h"
 #include "op_kernel/math_util.h"
+#include "simt_api/asc_simt.h"
 
 namespace TRSD
 {
@@ -53,15 +54,15 @@ __simt_vf__ LAUNCH_BOUND(THREAD_BOUND / sizeof(U)) __aicore__
     void SIMTTrans(__gm__ T* dst, __gm__ T* src, uint64_t shapeSize, U c1, U padN, U c0, U oriN, U oriC, U mPNC, U sPNC,
                    U mPNC0, U sPNC0, U mC1, U sC1, U mC0, U sC0, U mPN, U sPN)
 {
-    uint64_t tNum = uint64_t(Simt::GetThreadNum());
-    uint64_t blockID = uint64_t(Simt::GetBlockIdx());
-    uint64_t bNum = uint64_t(Simt::GetBlockNum());
+    uint64_t tNum = uint64_t(blockDim.x);
+    uint64_t blockID = uint64_t(blockIdx.x);
+    uint64_t bNum = uint64_t(gridDim.x);
     U hIdx = 0;
     U c1Idx = 0;
     U nIdx = 0;
     U cIdx = 0;
     auto oriNC = oriN * oriC;
-    for (uint64_t idx = Simt::GetThreadIdx() + blockID * tNum; idx < shapeSize; idx += bNum * tNum) {
+    for (uint64_t idx = threadIdx.x + blockID * tNum; idx < shapeSize; idx += bNum * tNum) {
         U idxU = U(idx);
         hIdx = Simt::UintDiv(idxU, mPNC, sPNC);
         U c1Cnt = Simt::UintDiv(idxU, mPNC0, sPNC0);
@@ -107,7 +108,7 @@ __aicore__ inline void TransWithSIMT<T>::Process()
     GetUintDivMagicAndShift(mC1, sC1, c1);
     GetUintDivMagicAndShift(mC0, sC0, c0);
     GetUintDivMagicAndShift(mPN, sPN, padN);
-    Simt::VF_CALL<SIMTTrans<T, U>>(Simt::Dim3(tNum), dstAddr, srcAddr, shapeSize, c1, padN, c0, oriN, oriC, mPNC, sPNC,
+    asc_vf_call<SIMTTrans<T, U>>(dim3(tNum), dstAddr, srcAddr, shapeSize, c1, padN, c0, oriN, oriC, mPNC, sPNC,
                                    mPNC0, sPNC0, mC1, sC1, mC0, sC0, mPN, sPN);
 }
 

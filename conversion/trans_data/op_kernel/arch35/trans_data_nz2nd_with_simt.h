@@ -18,6 +18,7 @@
 
 #include "kernel_operator.h"
 #include "op_kernel/math_util.h"
+#include "simt_api/asc_simt.h"
 
 namespace TRSD
 {
@@ -53,9 +54,9 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__
     void SIMTNZ2NDTrans(__gm__ T* dst, __gm__ T* src, uint64_t shapeSize, U n, U c, U c1, U n1, U n0, U c0,
                                    U hS, U hM, U nS, U nM, U c1S, U c1M, U n1S, U n1M)
 {
-    uint64_t tNum = uint64_t(Simt::GetThreadNum());
-    uint64_t blockID = uint64_t(Simt::GetBlockIdx());
-    uint64_t bNum = uint64_t(Simt::GetBlockNum());
+    uint64_t tNum = uint64_t(blockDim.x);
+    uint64_t blockID = uint64_t(blockIdx.x);
+    uint64_t bNum = uint64_t(gridDim.x);
     U hIdx = 0;
     U nIdx = 0;
     U cIdx = 0;
@@ -68,7 +69,7 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__
     U inputProdC1 = n1 * inputProdN1;
     U inputProdH = c1 * inputProdC1;
 
-    for (uint64_t idx = Simt::GetThreadIdx() + blockID * tNum; idx < shapeSize; idx += bNum * tNum) {
+    for (uint64_t idx = threadIdx.x + blockID * tNum; idx < shapeSize; idx += bNum * tNum) {
         U idxU = U(idx);
         hIdx = Simt::UintDiv(idxU, hM, hS);
         idxU -= hIdx * n * c;
@@ -117,7 +118,7 @@ __aicore__ inline void TransNZ2NDWithSIMT<T>::Process()
     GetUintDivMagicAndShift(n1M, n1S, n0);
 
     uint64_t shapeSize = h * c * n;
-    Simt::VF_CALL<SIMTNZ2NDTrans<T, U>>(Simt::Dim3(THREAD_DIM), dstAddr, srcAddr, shapeSize, n, c, c1, n1, n0, c0,
+    asc_vf_call<SIMTNZ2NDTrans<T, U>>(dim3(THREAD_DIM), dstAddr, srcAddr, shapeSize, n, c, c1, n1, n0, c0,
                                    hS, hM, nS, nM, c1S, c1M, n1S, n1M);
 }
 
