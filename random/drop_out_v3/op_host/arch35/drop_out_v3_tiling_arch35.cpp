@@ -50,8 +50,7 @@ OpTilingConfig DropOutV3Tiling::BuildOpConfig()
         auto inputShape = ctx->GetInputShape(INPUT_IDX_X);
         OP_CHECK_NULL_WITH_CONTEXT(ctx, inputShape);
         auto storageShape = inputShape->GetStorageShape();
-        size = storageShape.GetShapeSize();
-        size = (size <= 0) ? 1 : size; // scalar case
+        size = storageShape.IsScalar() ? 1 : storageShape.GetShapeSize();
         return ge::GRAPH_SUCCESS;
     };
 

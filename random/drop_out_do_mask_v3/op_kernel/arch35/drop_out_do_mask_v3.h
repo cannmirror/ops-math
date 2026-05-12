@@ -272,6 +272,9 @@ __aicore__ inline void DropOutDoMaskV3Op<T>::Process()
             AscendC::LocalTensor<T> xInputUb_ = xInputQueue_.DeQue<T>();
             int64_t yOffset = blockIdx_ * tiling_->normalCoreProNum + idx * tiling_->singleBufferSize;
             CopyOut(xInputUb_, yOutputGm_, 1, (uint32_t)(dataCount * sizeof(T)), yOffset);
+            event_t event_MTE3_MTE2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::MTE3_MTE2));
+            AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(event_MTE3_MTE2);
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(event_MTE3_MTE2);
             xInputQueue_.FreeTensor(xInputUb_);
         }
         return;
