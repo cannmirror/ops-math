@@ -17,6 +17,8 @@
 #define RANDOM_TRUNCATED_NORMAL_V2_SIMT_H_
 
 #include "kernel_operator.h"
+#include "simt_api/asc_simt.h"
+#include "simt_api/math_functions.h"
 #include "../../random_common/arch35/random_kernel_base.h"
 
 namespace TruncatedNormalV2 {
@@ -51,7 +53,7 @@ __simt_callee__ __aicore__ inline float Uint32ToFloat(const uint32_t x)
 
 __simt_callee__ __aicore__ inline void FilterSample(float* results, int& index, float f0)
 {
-    if (Simt::Abs(f0) < RANDOM_THREAD_R) {
+    if (fabsf(f0) < RANDOM_THREAD_R) {
         results[index] = f0;
         index = index + 1;
     }
@@ -100,8 +102,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_LAUNCH) inline void SimtCompute(__gm_
     uint32_t key[ALG_KEY_SIZE] = {key0, key1};
     uint32_t counter[ALG_COUNTER_SIZE] = {0, 0, counter2, counter3};
 
-    int64_t groupIndex = Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx();
-    int64_t totalThreadCount = Simt::GetBlockNum() * Simt::GetThreadNum();
+    int64_t groupIndex = blockIdx.x * blockDim.x + threadIdx.x;
+    int64_t totalThreadCount = gridDim.x * blockDim.x;
     int64_t offset = groupIndex * static_cast<int64_t>(GROUP_SIZE);
 
     // the op is stateful, offsetGm saved the previous offset of counter
@@ -155,8 +157,8 @@ __aicore__ inline void TruncatedNormalV2Simt<Y_T, OFFSET_T>::Process(GM_ADDR y, 
     const uint32_t counter3 = static_cast<uint32_t>(tilingData_->offset >> SHIFT_BITS);
 
     SyncAll();
-    AscendC::Simt::VF_CALL<SimtCompute<Y_T, OFFSET_T>>(
-        AscendC::Simt::Dim3{USED_THREAD}, (__gm__ Y_T*)y, stateOffset, outputNum, key0, key1, counter2,
+    asc_vf_call<SimtCompute<Y_T, OFFSET_T>>(
+        dim3{USED_THREAD}, (__gm__ Y_T*)y, stateOffset, outputNum, key0, key1, counter2,
         counter3);
     if (GetBlockIdx() == 0) {
         // update output offset

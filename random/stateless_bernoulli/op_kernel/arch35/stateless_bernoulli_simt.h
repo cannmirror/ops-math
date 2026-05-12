@@ -18,6 +18,7 @@
 
 #include "kernel_operator.h"
 #include "../../random_common/arch35/random_kernel_base.h"
+#include "simt_api/asc_simt.h"
 
 namespace StatelessBernoulli {
 
@@ -41,9 +42,9 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(PHILOX_THREAD_LAUNCH) inline void PhiloxBern
     uint32_t key[ALG_KEY_SIZE] = {0, 0};
     RandomKernelBase::PhiloxAlgParsInit(key, counterTmp, seed, offset);
 
-    for (TIdx i = (AscendC::Simt::GetBlockIdx() * AscendC::Simt::GetThreadNum() + AscendC::Simt::GetThreadIdx()) * STEP;
+    for (TIdx i = (blockIdx.x * blockDim.x + threadIdx.x) * STEP;
          i < outputSize;
-         i += AscendC::Simt::GetBlockNum() * AscendC::Simt::GetThreadNum() * STEP) {
+         i += gridDim.x * blockDim.x * STEP) {
         uint32_t counter[ALG_COUNTER_SIZE] = {0, 0, 0, 0};
         RandomKernelBase::CopyArray<ALG_COUNTER_SIZE>(counter, counterTmp);
         float results[ALG_COUNTER_SIZE] = {0, 0, 0, 0};
@@ -94,22 +95,22 @@ __aicore__ inline void StatelessBernoulliKernel<Tp, To>::Process(
     uint64_t probMode = static_cast<uint64_t>(tilingData->extraInt64Param1);
     if (tilingData->outputSize <= GPU_GRID_SIZE) {
         if (PROB_SCALAR == probMode) {
-            AscendC::Simt::VF_CALL<PhiloxBernoulliSample<Tp, To, PROB_SCALAR, uint32_t>>(
-                AscendC::Simt::Dim3(PHILOX_THREAD_LAUNCH), (__gm__ To*)out, (__gm__ Tp*)prob,
+            asc_vf_call<PhiloxBernoulliSample<Tp, To, PROB_SCALAR, uint32_t>>(
+                dim3(PHILOX_THREAD_LAUNCH), (__gm__ To*)out, (__gm__ Tp*)prob,
                 tilingData->offset, tilingData->seed, tilingData->outputSize, magic, shift, totalThreads);
         } else {
-            AscendC::Simt::VF_CALL<PhiloxBernoulliSample<Tp, To, PROB_TENSOR, uint32_t>>(
-                AscendC::Simt::Dim3(PHILOX_THREAD_LAUNCH), (__gm__ To*)out, (__gm__ Tp*)prob,
+            asc_vf_call<PhiloxBernoulliSample<Tp, To, PROB_TENSOR, uint32_t>>(
+                dim3(PHILOX_THREAD_LAUNCH), (__gm__ To*)out, (__gm__ Tp*)prob,
                 tilingData->offset, tilingData->seed, tilingData->outputSize, magic, shift, totalThreads);
         }
     } else {
         if (PROB_SCALAR == probMode) {
-            AscendC::Simt::VF_CALL<PhiloxBernoulliSample<Tp, To, PROB_SCALAR, uint64_t>>(
-                AscendC::Simt::Dim3(PHILOX_THREAD_LAUNCH), (__gm__ To*)out, (__gm__ Tp*)prob,
+            asc_vf_call<PhiloxBernoulliSample<Tp, To, PROB_SCALAR, uint64_t>>(
+                dim3(PHILOX_THREAD_LAUNCH), (__gm__ To*)out, (__gm__ Tp*)prob,
                 tilingData->offset, tilingData->seed, tilingData->outputSize, magic, shift, totalThreads);
         } else {
-            AscendC::Simt::VF_CALL<PhiloxBernoulliSample<Tp, To, PROB_TENSOR, uint64_t>>(
-                AscendC::Simt::Dim3(PHILOX_THREAD_LAUNCH), (__gm__ To*)out, (__gm__ Tp*)prob,
+            asc_vf_call<PhiloxBernoulliSample<Tp, To, PROB_TENSOR, uint64_t>>(
+                dim3(PHILOX_THREAD_LAUNCH), (__gm__ To*)out, (__gm__ Tp*)prob,
                 tilingData->offset, tilingData->seed, tilingData->outputSize, magic, shift, totalThreads);
         }
     }

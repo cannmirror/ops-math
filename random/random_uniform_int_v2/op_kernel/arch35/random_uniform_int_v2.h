@@ -14,6 +14,7 @@
 #include "op_kernel/platform_util.h"
 #include "op_kernel/math_util.h"
 
+#include "simt_api/asc_simt.h"
 namespace RandomUniformIntV2 {
 using namespace AscendC;
 
@@ -69,7 +70,7 @@ template <typename T, typename UINT_T>
 __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_DIM) inline void UintToIntSimt(
     const uint32_t calCount, T low, UINT_T range, const __ubuf__ UINT_T* philox, __ubuf__ T* yOutput)
 {
-    for (uint32_t index = Simt::GetThreadIdx(); index < calCount; index = index + Simt::GetThreadNum()) {
+    for (uint32_t index = threadIdx.x; index < calCount; index = index + blockDim.x) {
         UINT_T randomRes = philox[index];
         UINT_T divRes = randomRes / range;
         UINT_T b = randomRes - divRes * range;
@@ -185,8 +186,8 @@ __aicore__ inline void RandomUniformIntV2Op<T>::DataTypeHandle(const uint32_t ca
         UintToInt<int32_t, uint32_t>(yOutput, calCount);
     } else if constexpr (AscendC::IsSameType<T, int64_t>::value) {
         LocalTensor<uint64_t> philoxRes = philoxQueBuf_.Get<uint64_t>();
-        AscendC::Simt::VF_CALL<UintToIntSimt<int64_t, uint64_t>>(
-            AscendC::Simt::Dim3{THREAD_DIM}, calCount, tiling_->lo, tiling_->range,
+        asc_vf_call<UintToIntSimt<int64_t, uint64_t>>(
+            dim3{THREAD_DIM}, calCount, tiling_->lo, tiling_->range,
             (__ubuf__ uint64_t*)philoxRes.GetPhyAddr(), (__ubuf__ int64_t*)yOutput.GetPhyAddr());
     }
     outQueY_.EnQue(yOutput);

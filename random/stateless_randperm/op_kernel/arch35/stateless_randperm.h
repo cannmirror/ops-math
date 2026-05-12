@@ -24,6 +24,7 @@
 #include "stateless_randperm_sort.h"
 #include "stateless_randperm_random.h"
 #include "../stateless_randperm_struct.h"
+#include "simt_api/asc_simt.h"
 
 namespace StatelessRandperm {
 using namespace AscendC;
@@ -34,7 +35,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_LAUNCH) inline void FindAndFisherYare
     uint32_t repeatTimes, uint64_t randomBits, uint32_t factor, uint32_t coreNum, int64_t offset,
     uint32_t key0, uint32_t key1, int64_t n)
 {
-    if (Simt::GetBlockIdx() >= coreNum) return;
+    if (blockIdx.x >= coreNum) return;
     uint32_t counter[ALG_COUNTER_SIZE] = {0};
     uint32_t key[ALG_KEY_SIZE] = {key0, key1};
     uint32_t results;
@@ -42,8 +43,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_LAUNCH) inline void FindAndFisherYare
     uint32_t state = 0;
     T mask = static_cast<T>((1UL << randomBits) - 1);
     for (uint16_t i = 0; i < repeatTimes; i++){
-        uint64_t blockIdx = Simt::GetBlockIdx() * factor + i;
-        uint64_t tid = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx();
+        uint64_t blockIdxVal = blockIdx.x * factor + i;
+        uint64_t tid = blockIdxVal * blockDim.x + threadIdx.x;
         
         // find the beginning of islands
         if (tid >= n - 1) continue; // out of range
@@ -76,8 +77,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(DATACOPY_THREAD_LAUNCH) inline void CopyData
     uint32_t factor, uint32_t repeatTimes)
 {
     for (uint16_t i = 0; i < repeatTimes; i++) {
-        uint64_t blockIdx = Simt::GetBlockIdx() * factor + i;
-        uint64_t tid = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx();
+        uint64_t blockIdxVal = blockIdx.x * factor + i;
+        uint64_t tid = blockIdxVal * blockDim.x + threadIdx.x;
         if (tid > n - 1) return; // out of range
         outGm_[tid] = static_cast<Y>(indexWorkSpace_[tid]);
     }   
@@ -89,7 +90,7 @@ __gm__ volatile R* randWorkSpace, T n, int32_t randomBits,
 uint32_t factor, uint32_t repeatTimes, uint32_t coreNum, T offset,
 uint32_t key0, uint32_t key1)
 {
-    if (Simt::GetBlockIdx() >= coreNum) return;
+    if (blockIdx.x >= coreNum) return;
     uint32_t counter[ALG_COUNTER_SIZE] = {0};
     uint32_t key[ALG_KEY_SIZE] = {key0, key1};
     uint32_t results[ALG_COUNTER_SIZE];
@@ -98,12 +99,12 @@ uint32_t key0, uint32_t key1)
     T mask = static_cast<T>((1UL << randomBits) - 1);
     uint32_t state = 0;
     T dimX = (n + PHILOX_USED_THREAD - 1) / PHILOX_USED_THREAD;
-    dimX = Simt::Min(dimX, static_cast<T>(MAX_DIM_X)); 
+    dimX = min(dimX, static_cast<T>(MAX_DIM_X)); 
     T roundedSize = ((n - 1) / (PHILOX_USED_THREAD * dimX * UNROLL_FACTOR) + 1) * 
                             (PHILOX_USED_THREAD * dimX * UNROLL_FACTOR);
     for (uint16_t i = 0; i < repeatTimes; i++) {
-        uint32_t blockIdx = Simt::GetBlockIdx() * factor + i;
-        uint32_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx();
+        uint32_t blockIdxVal = blockIdx.x * factor + i;
+        uint32_t idx = blockIdxVal * blockDim.x + threadIdx.x;
         RandInit(state, idx, offset, key, counter, last);
         T linearStep = PHILOX_USED_THREAD * dimX * UNROLL_FACTOR;
         for(T linearIndex = idx; linearIndex < roundedSize; linearIndex += linearStep) {
@@ -129,7 +130,7 @@ public:
     {
         InitParams();
 
-        auto blockIdx = GetBlockIdx();
+        auto blockIdxVal = GetBlockIdx();
 
         outGm_.SetGlobalBuffer((__gm__ Ty *)(y));
 
@@ -200,7 +201,7 @@ public:
                                         usrWorkspace + randomWkSizeByte_, reinterpret_cast<SortRegBaseTilingData*>(sortTilingData_), pipe_);
 
         SyncAll();
-        AscendC::Simt::VF_CALL<FindAndFisherYares<Tn, Tr, Ty>>(AscendC::Simt::Dim3{USED_THREAD}, 
+        asc_vf_call<FindAndFisherYares<Tn, Tr, Ty>>(dim3{USED_THREAD}, 
             (__gm__ Tr*)(y1WorkSpace_.GetPhyAddr()), (__gm__ Tn*)(indexWorkSpace_.GetPhyAddr()),
             (__gm__ Ty*)(outGm_.GetPhyAddr()), repeatTimes, randomBits_, factor_, fisherNeedCoreNum_, counterOffset_,
             key_[0], key_[1], n_);
@@ -211,7 +212,7 @@ public:
         } else {
             repeatTimes = castFactor_;
         }
-        AscendC::Simt::VF_CALL<CopyData<Ty, Tn>>(AscendC::Simt::Dim3{DATACOPY_THREAD_LAUNCH},
+        asc_vf_call<CopyData<Ty, Tn>>(dim3{DATACOPY_THREAD_LAUNCH},
                         (__gm__ Ty*)(outGm_.GetPhyAddr()), (__gm__ Tn*)(indexWorkSpace_.GetPhyAddr()), n_,
                         castFactor_, repeatTimes);
         SyncAll();
@@ -275,12 +276,12 @@ private:
             }              
 
             if (randomBits_ <= 32) {
-                AscendC::Simt::VF_CALL<Philox<Tr, int32_t>>(AscendC::Simt::Dim3(PHILOX_USED_THREAD),
+                asc_vf_call<Philox<Tr, int32_t>>(dim3(PHILOX_USED_THREAD),
                     (__gm__ Tr*)(randWorkSpace_[currentLow].GetPhyAddr()), static_cast<int32_t>(currentN), randomBits_,
                     philoxFactor_, philoxRepeatTimes, philoxNeedCoreNum_, currentCounterOffset, 
                     key_[0], key_[1]);
             } else {
-                AscendC::Simt::VF_CALL<Philox<Tr, int64_t>>(AscendC::Simt::Dim3(PHILOX_USED_THREAD),
+                asc_vf_call<Philox<Tr, int64_t>>(dim3(PHILOX_USED_THREAD),
                     (__gm__ Tr*)(randWorkSpace_[currentLow].GetPhyAddr()), currentN, randomBits_,
                     philoxFactor_, philoxRepeatTimes, philoxNeedCoreNum_, currentCounterOffset, 
                     key_[0], key_[1]);

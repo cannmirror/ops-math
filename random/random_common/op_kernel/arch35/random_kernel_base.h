@@ -15,6 +15,7 @@
 #include "op_kernel/platform_util.h"
 #include "op_kernel/math_util.h"
 #include "random_unified_tiling_data_arch35.h"
+#include "simt_api/asc_simt.h"
 
 namespace RandomKernelBase {
 using namespace AscendC;
@@ -317,8 +318,8 @@ __simt_callee__ __aicore__ inline void BoxMullerFloat(float u1, const float u2, 
         u1 = eps;
     }
     float v = static_cast<float>(DOUBLE_MULTIPLE * PI * u2);
-    float r = Simt::Sqrt(-DOUBLE_MULTIPLE * Simt::Log(u1));
-    Simt::Sincos(v, *z0, *z1);
+    float r = sqrtf(-DOUBLE_MULTIPLE * logf(u1));
+    sincosf(v, z0, z1);
     *z0 *= r;
     *z1 *= r;
 }
@@ -491,8 +492,8 @@ template <int32_t STEP, int32_t ARANGE_MODE>
         uint64_t magic, shift;
         GetUintDivMagicAndShift(magic, shift, totalThreads);
         // 方式1：
-        for (int64_t i = (Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx()) * step; i < outputLength;
-            i += Simt::GetBlockNum() * Simt::GetThreadNum() * step)
+        for (int64_t i = (blockIdx.x * blockDim.x + threadIdx.x) * step; i < outputLength;
+            i += gridDim.x * blockDim.x * step)
          {
             uint32_t results[ALG_COUNTER_SIZE];   // 或者 float类型
             uint32_t counterTmp[ALG_COUNTER_SIZE] = {0, 0, 0, 0};
@@ -503,8 +504,8 @@ template <int32_t STEP, int32_t ARANGE_MODE>
          }
 
         // 方式2：
-        for (int64_t i = (Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx()); i < outputLength;
-            i += Simt::GetBlockNum() * Simt::GetThreadNum() * step)
+        for (int64_t i = (blockIdx.x * blockDim.x + threadIdx.x); i < outputLength;
+            i += gridDim.x * blockDim.x * step)
          {
             uint32_t results[ALG_COUNTER_SIZE];   // 或者 float类型
             uint32_t counterTmp[ALG_COUNTER_SIZE] = {0, 0, 0, 0};

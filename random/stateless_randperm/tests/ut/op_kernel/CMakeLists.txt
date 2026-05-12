@@ -21,8 +21,8 @@ if(UT_TEST_ALL OR OP_KERNEL_UT)
         ${KERNEL_STAGING_DIR}/sort)
 
     set(stateless_randperm_tiling_files
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../op_host/stateless_randperm_tiling_arch35.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../op_host/stateless_randperm_tiling_for_sort.cpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../op_host/arch35/stateless_randperm_tiling_arch35.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../op_host/arch35/stateless_randperm_tiling_for_sort.cpp)
     AddOpTestCase(
         stateless_randperm
         "ascend950"

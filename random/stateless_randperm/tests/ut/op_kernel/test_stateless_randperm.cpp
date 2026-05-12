@@ -12,6 +12,10 @@
 #include <cstring>
 #include "gtest/gtest.h"
 #include "tikicpulib.h"
+
+inline int min(int x, int y) { return x < y ? x : y; }
+inline long min(long x, long y) { return x < y ? x : y; }
+
 #include "../../../op_kernel/stateless_randperm_apt.cpp"
 
 namespace {

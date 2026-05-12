@@ -12,6 +12,8 @@
 #define DROP_OUT_V3_IMPL_H
 
 #include "../../random_common/arch35/random_kernel_base.h"
+#include "simt_api/asc_simt.h"
+
 
 namespace DropOutV3 {
 using namespace AscendC;
@@ -78,10 +80,10 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(CORE_THREAD_NUM) inline void SimtDropOutVec(
     // todo 除0
     float scale = 1.0f / p;
     PhiloxAlgParsInit(key, counter, seed, offset);
-    int64_t idx = Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx();
+    int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     int32_t randSize = (VEC + NUM_4 - 1) / NUM_4;
     for (int64_t linearIndex = idx * VEC; linearIndex < elementNum; 
-         linearIndex += Simt::GetThreadNum() * Simt::GetBlockNum() * VEC) {
+         linearIndex += blockDim.x * gridDim.x * VEC) {
         float resultsAll[VEC_16] = {0.0};
         for (uint8_t randIdx = 0; randIdx < randSize; randIdx++) {
             uint32_t counterTmp[ALG_COUNTER_SIZE] = {0, 0, 0, 0};
@@ -106,8 +108,8 @@ template <typename T>
 __simt_vf__ __aicore__ LAUNCH_BOUND(CORE_THREAD_NUM) inline void ProcessZero(__gm__ volatile T *outputGM, 
     __gm__ volatile uint8_t *maskGM, int64_t elementNum)
 {
-    for (int64_t linearIndex = Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx(); linearIndex < elementNum; 
-        linearIndex += Simt::GetThreadNum() * Simt::GetBlockNum()) {
+    for (int64_t linearIndex = blockIdx.x * blockDim.x + threadIdx.x; linearIndex < elementNum; 
+        linearIndex += blockDim.x * gridDim.x) {
             outputGM[linearIndex] = 0;
             maskGM[linearIndex] = 0;
     }
@@ -122,11 +124,11 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(CORE_THREAD_NUM) inline void SimtDropOut(
     uint32_t counter[ALG_COUNTER_SIZE] = {0, 0, 0, 0};
     float scale = 1.0f / p;
     PhiloxAlgParsInit(key, counter, seed, offset);
-    int64_t idx = Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx();
+    int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     int64_t repeatTime = (elementNum + totalThreads * UNROLL - 1) / (totalThreads * UNROLL);
     for (int64_t loopIdx = 0; loopIdx < repeatTime; loopIdx++ ) {
         for (int64_t linearIndex = idx; linearIndex < totalThreads; 
-            linearIndex += Simt::GetThreadNum() * Simt::GetBlockNum()) {
+            linearIndex += blockDim.x * gridDim.x) {
             uint32_t counterTmp[ALG_COUNTER_SIZE] = {0, 0, 0, 0};
             CopyArray<ALG_COUNTER_SIZE>(counterTmp, counter);
             ThreadMappingAndSkip<STEP, DIS_CONTINUOUS_USE>(linearIndex + totalThreads * UNROLL * loopIdx, counterTmp, magic, shift, totalThreads);
@@ -265,7 +267,7 @@ __aicore__ inline void DropOutV3Impl<T, U>::Process(
     }
 
     if (IsProbEqual(prob_, 0.0f)) {
-        AscendC::Simt::VF_CALL<ProcessZero<T>>(AscendC::Simt::Dim3(CORE_THREAD_NUM),
+        asc_vf_call<ProcessZero<T>>(dim3(CORE_THREAD_NUM),
             (__gm__ volatile T*)y, (__gm__ volatile uint8_t*)(maskWorkspace_.GetPhyAddr()), tilingData->outputSize);
         SyncAll();
         UpdateMask(tilingData);
@@ -286,27 +288,27 @@ __aicore__ inline void DropOutV3Impl<T, U>::Process(
 
     switch (vecSize) {
         case VEC_16:
-            AscendC::Simt::VF_CALL<SimtDropOutVec<T,VEC_16>>(AscendC::Simt::Dim3(CORE_THREAD_NUM),
+            asc_vf_call<SimtDropOutVec<T,VEC_16>>(dim3(CORE_THREAD_NUM),
                 (__gm__ volatile T*)x, (__gm__ volatile T*)y, (__gm__ volatile uint8_t*)(maskWorkspace_.GetPhyAddr()),
                 totalThreads, magic, shift, tilingData->outputSize, tilingData->seed, tilingData->offset, prob_);
             break;
         case VEC_8:
-            AscendC::Simt::VF_CALL<SimtDropOutVec<T,VEC_8>>(AscendC::Simt::Dim3(CORE_THREAD_NUM),
+            asc_vf_call<SimtDropOutVec<T,VEC_8>>(dim3(CORE_THREAD_NUM),
                 (__gm__ volatile T*)x, (__gm__ volatile T*)y, (__gm__ volatile uint8_t*)(maskWorkspace_.GetPhyAddr()),
                 totalThreads, magic, shift, tilingData->outputSize, tilingData->seed, tilingData->offset, prob_);
             break;
         case VEC_4:
-            AscendC::Simt::VF_CALL<SimtDropOutVec<T,VEC_4>>(AscendC::Simt::Dim3(CORE_THREAD_NUM),
+            asc_vf_call<SimtDropOutVec<T,VEC_4>>(dim3(CORE_THREAD_NUM),
                 (__gm__ volatile T*)x, (__gm__ volatile T*)y, (__gm__ volatile uint8_t*)(maskWorkspace_.GetPhyAddr()),
                 totalThreads, magic, shift, tilingData->outputSize, tilingData->seed, tilingData->offset, prob_);
             break;
         case VEC_2:
-            AscendC::Simt::VF_CALL<SimtDropOutVec<T,VEC_2>>(AscendC::Simt::Dim3(CORE_THREAD_NUM),
+            asc_vf_call<SimtDropOutVec<T,VEC_2>>(dim3(CORE_THREAD_NUM),
                 (__gm__ volatile T*)x, (__gm__ volatile T*)y, (__gm__ volatile uint8_t*)(maskWorkspace_.GetPhyAddr()),
                 totalThreads, magic, shift, tilingData->outputSize, tilingData->seed, tilingData->offset, prob_);
             break;
         default:
-            AscendC::Simt::VF_CALL<SimtDropOut<T>>(AscendC::Simt::Dim3(CORE_THREAD_NUM),
+            asc_vf_call<SimtDropOut<T>>(dim3(CORE_THREAD_NUM),
                 (__gm__ volatile T*)x, (__gm__ volatile T*)y, (__gm__ volatile uint8_t*)(maskWorkspace_.GetPhyAddr()),
                 totalThreads, magic, shift, tilingData->outputSize, tilingData->seed, tilingData->offset, prob_);
             break;

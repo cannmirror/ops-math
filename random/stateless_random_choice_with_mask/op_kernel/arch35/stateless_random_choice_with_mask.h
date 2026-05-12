@@ -17,6 +17,7 @@
 #define STATELESS_RANDOM_CHOICE_WITH_MASK
 
 #include "kernel_operator.h"
+#include "simt_api/asc_simt.h"
 #include "op_kernel/platform_util.h"
 #include "op_kernel/math_util.h"
 
@@ -81,7 +82,7 @@ __simt_vf__ LAUNCH_BOUND(CORE_THREAD_NUM) __aicore__ inline void SimtComputeNonZ
     __gm__ bool* inputGM, __gm__ volatile int64_t* workspaceNonZeroCount, int64_t inputSize, int64_t perThreadCalcCount,
     int64_t count)
 {
-    int64_t threadOffset = Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx();
+    int64_t threadOffset = blockIdx.x * blockDim.x + threadIdx.x;
     int64_t startIdx = threadOffset * perThreadCalcCount;
     int64_t endIdx = startIdx + perThreadCalcCount;
     if (startIdx + perThreadCalcCount > inputSize) {
@@ -104,7 +105,7 @@ __simt_vf__ LAUNCH_BOUND(CORE_THREAD_NUM) __aicore__ inline void SimtComputeNonZ
 __simt_vf__ LAUNCH_BOUND(1) __aicore__
     inline void SimtPrefixSum(__gm__ int64_t* workspaceNonZeroCount, int32_t totalPart)
 {
-    if (Simt::GetThreadIdx() != 0) {
+    if (threadIdx.x != 0) {
         return;
     }
     for (int64_t idx = 1; idx <= totalPart; idx++) {
@@ -116,8 +117,8 @@ __simt_vf__ LAUNCH_BOUND(CORE_THREAD_NUM) __aicore__ inline void SimtPadOutput(
     __gm__ volatile int32_t* outputGM, __gm__ volatile bool* maskGM, int64_t blockNum, uint32_t inputDim,
     int64_t outputLength, int64_t outputNonzeroCount)
 {
-    int64_t threadOffset = Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx();
-    for (uint64_t idx = outputNonzeroCount + threadOffset; idx < outputLength; idx += blockNum * Simt::GetThreadNum()) {
+    int64_t threadOffset = blockIdx.x * blockDim.x + threadIdx.x;
+    for (uint64_t idx = outputNonzeroCount + threadOffset; idx < outputLength; idx += blockNum * blockDim.x) {
         for (uint64_t dim = 0; dim < inputDim; dim++) {
             outputGM[idx * inputDim + dim] = 0;
         }
@@ -130,7 +131,7 @@ __simt_vf__ LAUNCH_BOUND(CORE_THREAD_NUM) __aicore__ inline void SimtCalcOutput(
     __gm__ volatile bool* maskGM, int64_t blockNum, int64_t outputLength, int64_t outputNonzeroCount,
     int64_t perThreadCalcCount)
 {
-    int64_t threadOffset = Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx();
+    int64_t threadOffset = blockIdx.x * blockDim.x + threadIdx.x;
 
     int64_t preIdx = workspaceNonZeroCount[threadOffset];
     int64_t curIdx = workspaceNonZeroCount[threadOffset + 1];
@@ -155,8 +156,8 @@ __simt_vf__ LAUNCH_BOUND(CORE_THREAD_NUM) __aicore__ inline void SplitDim(
     uint32_t s[5] = {s0, s1, s2, s3, s4};
     uint32_t c[5] = {c0, c1, c2, c3, 1};
 
-    for (int64_t idx = Simt::GetBlockIdx() * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputNonzeroCount;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (int64_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < outputNonzeroCount;
+         idx += blockNum * blockDim.x) {
         uint32_t realIdx = srcGM[idx];
         for (int64_t dim = 0; dim < inputDim; dim++) {
             dstGM[idx * inputDim + dim] = Simt::UintDiv(realIdx, m[dim], s[dim]);
@@ -169,7 +170,7 @@ __simt_vf__ LAUNCH_BOUND(1) __aicore__ inline void SimtFisherYatesShuffle(
     __gm__ uint32_t* workspaceRandomData, __gm__ volatile int32_t* outputGM, __gm__ uint64_t* outShapeGM,
     int64_t inputDim, int64_t outputNonzeroCount, int64_t outputCount)
 {
-    if (Simt::GetBlockIdx() != 0 || Simt::GetThreadIdx() != 0) {
+    if (blockIdx.x != 0 || threadIdx.x != 0) {
         return;
     }
     for (int32_t idx = outputNonzeroCount - 1; idx > 0; idx--) {
@@ -276,20 +277,20 @@ __aicore__ inline void StatelessRandomChoiceWithMask::FisherYatesShuffleAndSplit
     if (tiling_->inputDim != 1) {
         outGM = workSpaceOutput_;
     }
-    Simt::VF_CALL<SimtCalcOutput>(
-        Simt::Dim3{CORE_THREAD_NUM}, (__gm__ volatile bool*)(inputGM_.GetPhyAddr()),
+    asc_vf_call<SimtCalcOutput>(
+        dim3{CORE_THREAD_NUM}, (__gm__ volatile bool*)(inputGM_.GetPhyAddr()),
         (__gm__ volatile int64_t*)(workspaceNoZeroCount_.GetPhyAddr()), (__gm__ volatile int32_t*)(outGM.GetPhyAddr()),
         (__gm__ volatile bool*)(maskGM_.GetPhyAddr()), tiling_->blockNum, outputLength, outputNonzeroCount,
         threadProNum_);
-    Simt::VF_CALL<SimtPadOutput>(
-        Simt::Dim3{CORE_THREAD_NUM}, (__gm__ volatile int32_t*)(outputGM_.GetPhyAddr()),
+    asc_vf_call<SimtPadOutput>(
+        dim3{CORE_THREAD_NUM}, (__gm__ volatile int32_t*)(outputGM_.GetPhyAddr()),
         (__gm__ volatile bool*)(maskGM_.GetPhyAddr()), tiling_->blockNum, tiling_->inputDim, outputLength,
         outputNonzeroCount);
     GenRandomData(outputNonzeroCount);
     SyncAll();
     // 6、洗牌算法 - 单核、单线程，后续性能考虑，可改为多线程
-    Simt::VF_CALL<SimtFisherYatesShuffle>(
-        Simt::Dim3{1}, (__gm__ uint32_t*)(workspaceRandomData_.GetPhyAddr()),
+    asc_vf_call<SimtFisherYatesShuffle>(
+        dim3{1}, (__gm__ uint32_t*)(workspaceRandomData_.GetPhyAddr()),
         (__gm__ volatile int32_t*)(outGM.GetPhyAddr()), (__gm__ uint64_t*)(outShapeGM_.GetPhyAddr()), tiling_->inputDim,
         outputNonzeroCount, outputLength);
 
@@ -305,8 +306,8 @@ __aicore__ inline void StatelessRandomChoiceWithMask::FisherYatesShuffleAndSplit
             GetUintDivMagicAndShift(m[idx], s[idx], strides[idx]);
         }
         // 如果是多轴情况，需要做拆轴
-        Simt::VF_CALL<SplitDim>(
-            Simt::Dim3{CORE_THREAD_NUM}, (__gm__ volatile int32_t*)(workSpaceOutput_.GetPhyAddr()),
+        asc_vf_call<SplitDim>(
+            dim3{CORE_THREAD_NUM}, (__gm__ volatile int32_t*)(workSpaceOutput_.GetPhyAddr()),
             (__gm__ volatile int32_t*)(outputGM_.GetPhyAddr()), outputNonzeroCount, tiling_->blockNum,
             tiling_->inputDim, m[0], s[0], m[1], s[1], m[2], s[2], m[3], s[3], m[4], s[4], strides[0], strides[1],
             strides[2], strides[3]);
@@ -329,8 +330,8 @@ __aicore__ inline void StatelessRandomChoiceWithMask::Process()
         return;
     }
 
-    Simt::VF_CALL<SimtComputeNonZeroCount>(
-        Simt::Dim3{CORE_THREAD_NUM}, (__gm__ bool*)(inputGM_.GetPhyAddr()),
+    asc_vf_call<SimtComputeNonZeroCount>(
+        dim3{CORE_THREAD_NUM}, (__gm__ bool*)(inputGM_.GetPhyAddr()),
         (__gm__ volatile int64_t*)(workspaceNoZeroCount_.GetPhyAddr()), tiling_->inputSize, threadProNum_, count_);
     SyncAll();
 

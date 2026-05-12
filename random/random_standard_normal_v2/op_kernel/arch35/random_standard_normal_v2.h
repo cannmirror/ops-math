@@ -13,6 +13,8 @@
 #include "kernel_operator.h"
 #include "op_kernel/platform_util.h"
 #include "op_kernel/math_util.h"
+#include "simt_api/asc_simt.h"
+#include "simt_api/math_functions.h"
 #include "../../random_common/arch35/random_kernel_base.h"
 
 namespace RandomStandardNormalV2 {
@@ -37,8 +39,8 @@ __simt_callee__ __aicore__ inline void BoxMullerFloat(const float x0, const floa
         u1 = eps;
     }
     float v1 = static_cast<float>(DOUBLE_MULTIPLE * PI * x1);
-    float u2 = Simt::Sqrt(-DOUBLE_MULTIPLE * Simt::Log(u1));
-    Simt::Sincos(v1, *f0, *f1);
+    float u2 = sqrtf(-DOUBLE_MULTIPLE * logf(u1));
+    sincosf(v1, f0, f1);
     *f0 *= u2;
     *f1 *= u2;
 }
@@ -46,7 +48,7 @@ __simt_callee__ __aicore__ inline void BoxMullerFloat(const float x0, const floa
 __simt_vf__ __aicore__
 LAUNCH_BOUND(THREAD_LAUNCH) inline void SimtBoxMuller(__ubuf__ float* yOutputTmp, const uint32_t calCount)
 {
-    int64_t groupOffset = Simt::GetThreadIdx() * GROUP_SIZE;
+    int64_t groupOffset = threadIdx.x * GROUP_SIZE;
 
     while (groupOffset < calCount) {
         float uniformRes[GROUP_SIZE];
@@ -55,7 +57,7 @@ LAUNCH_BOUND(THREAD_LAUNCH) inline void SimtBoxMuller(__ubuf__ float* yOutputTmp
         yOutputTmp[groupOffset] = uniformRes[0];
         yOutputTmp[groupOffset + 1] = uniformRes[1];
 
-        groupOffset += Simt::GetThreadNum() * GROUP_SIZE;
+        groupOffset += blockDim.x * GROUP_SIZE;
     }
 }
 
@@ -108,8 +110,8 @@ __aicore__ inline void RandomStandardNormalV2Op<T, OFFSET_T>::Process()
         uint16_t uniformResCount = Ops::Base::CeilAlign(currUbTilingSize, static_cast<OFFSET_T>(DOUBLE_UNIFORM_RESULT));
         PhiloxRandom<10>(
             yOutputTmp, {key_[0], key_[1]}, {counter_[0], counter_[1], counter_[2], counter_[3]}, uniformResCount);
-        AscendC::Simt::VF_CALL<SimtBoxMuller>(
-            AscendC::Simt::Dim3{USED_THREAD}, (__ubuf__ float*)(yOutputTmp.GetPhyAddr()), uniformResCount);
+        asc_vf_call<SimtBoxMuller>(
+            dim3{USED_THREAD}, (__ubuf__ float*)(yOutputTmp.GetPhyAddr()), uniformResCount);
         LocalTensor<T> Output = outQue_.AllocTensor<T>();
         RandomKernelBase::Float32Conversion(Output, yOutputTmp, currUbTilingSize);
         outQue_.EnQue(Output);
