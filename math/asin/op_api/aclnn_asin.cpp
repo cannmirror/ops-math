@@ -56,12 +56,12 @@ static bool isSupportBf16Version()
 
 static bool isSupportedKernel(DataType castDtype)
 {
-    auto socVersion = op::GetCurrentPlatformInfo().GetSocVersion();
-    if (socVersion == SocVersion::ASCEND950 && (castDtype == DataType::DT_BF16 || castDtype == DataType::DT_FLOAT16 ||
+    auto npuArch = GetCurrentPlatformInfo().GetCurNpuArch();
+    if (npuArch == NpuArch::DAV_3510 && (castDtype == DataType::DT_BF16 || castDtype == DataType::DT_FLOAT16 ||
         castDtype == DataType::DT_FLOAT)) {
         return true;
     } else {
-        OP_LOGD("The soc version [%s] does not support Kernel with input", op::ToString(socVersion).GetString());
+        OP_LOGD("The npuArch does not support Kernel with input");
         return false;
     }
 }
