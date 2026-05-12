@@ -390,12 +390,15 @@ VC6@ops-math:
         - ops/ops-math/random/stateless_random_normal_v2/op_kernel/
         # random_common
         - ops/ops-math/random/random_common/op_kernel/
+        - ops/ops-math/random/random_common/op_host/
         # stateless_random_normal_v3
         - ops/ops-math/random/stateless_random_normal_v3/
         - ops/ops-math/random/stateless_random_normal_v3/op_host/
         - ops/ops-math/random/stateless_random_normal_v3/op_kernel/
         # truncated_normal_v2   
-        - ops/ops-math/random/truncated_normal_v2/op_graph/fusion_pass/          
+        - ops/ops-math/random/truncated_normal_v2/op_graph/fusion_pass/
+        - ops/ops-math/random/truncated_normal_v2/op_kernel/
+        - ops/ops-math/random/truncated_normal_v2/op_host/
         # stateless_random_uniform_v2
         - ops/ops-math/random/stateless_random_uniform_v2/op_host/
         - ops/ops-math/random/stateless_random_uniform_v2/op_kernel/
