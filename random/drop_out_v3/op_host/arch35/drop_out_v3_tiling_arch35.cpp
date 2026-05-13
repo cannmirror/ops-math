@@ -78,15 +78,6 @@ OpTilingConfig DropOutV3Tiling::BuildOpConfig()
     return config;
 }
 
-template <typename T>
-static ge::graphStatus GetFirstValueAsFloat(const gert::TilingContext* context, const gert::Tensor* tensor, float& value)
-{
-    auto data = tensor->GetData<T>();
-    OP_CHECK_NULL_WITH_CONTEXT(context, data);
-    value = static_cast<float>(data[0]);
-    return ge::GRAPH_SUCCESS;
-}
-
 ge::graphStatus DropOutV3Tiling::UniqueProcess()
 {
     simtTilingData_.ubSize = ubSize_;
@@ -98,21 +89,32 @@ ge::graphStatus DropOutV3Tiling::UniqueProcess()
         OP_LOGE(context_->GetNodeName(), "get const shape of prob failed"), return ge::GRAPH_FAILED);
     auto pDescPtr = context_->GetRequiredInputDesc(INPUT_IDX_P);
     OP_CHECK_NULL_WITH_CONTEXT(context_, pDescPtr);
-    float pVal = 0.0f;
-    ge::graphStatus ret = ge::GRAPH_SUCCESS;
+    float prob = 0.0f;
     switch (pDescPtr->GetDataType()) {
-        case ge::DT_DOUBLE:  ret = GetFirstValueAsFloat<double>(context_, pTensor, pVal); break;
-        case ge::DT_FLOAT:   ret = GetFirstValueAsFloat<float>(context_, pTensor, pVal); break;
-        case ge::DT_FLOAT16: ret = GetFirstValueAsFloat<Ops::Base::fp16_t>(context_, pTensor, pVal); break;
-        case ge::DT_BF16:    ret = GetFirstValueAsFloat<Ops::Base::bfloat16>(context_, pTensor, pVal); break;
-        default:OP_LOGE(context_->GetNodeName(), "Unsupported p dtype"); return ge::GRAPH_FAILED;
+        case ge::DT_DOUBLE: {
+            prob = static_cast<float>(double(1) - pTensor->GetData<double>()[0]);
+            break;
+        }
+        case ge::DT_FLOAT16: {
+            auto srcP = pTensor->GetData<Ops::Base::fp16_t>()[0];
+            prob = 1.0f - srcP.toFloat();
+            break;
+        }
+        case ge::DT_BF16: {
+            float srcP = pTensor->GetData<Ops::Base::bfloat16>()[0];
+            prob = 1.0f - srcP;
+            break;
+        }
+        case ge::DT_FLOAT: {
+            prob = 1.0f - pTensor->GetData<float>()[0];
+            break;
+        }
+        default: {
+            OP_LOGE(context_->GetNodeName(), "Unsupported p dtype");
+            return ge::GRAPH_FAILED;
+        }
     }
-    OP_CHECK_IF(ret != ge::GRAPH_SUCCESS,
-        OP_LOGE(context_->GetNodeName(), "get prob value failed"), return ge::GRAPH_FAILED);
-    OP_CHECK_IF(pVal < 0.0f || pVal > 1.0f,
-        OP_LOGE(context_->GetNodeName(), "The value of p has to be between 0 and 1, but current is %f.", pVal),
-        return ge::GRAPH_FAILED);
-    simtTilingData_.prob = 1.0f - pVal;
+    simtTilingData_.prob = prob;
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context_->GetPlatformInfo());
     workspaceSize_ = Ops::Base::CeilAlign(simtTilingData_.outputSize, ALIGNMENT_32) * sizeof(uint8_t) +

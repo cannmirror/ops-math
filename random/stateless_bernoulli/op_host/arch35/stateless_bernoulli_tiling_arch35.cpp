@@ -47,7 +47,7 @@ OpTilingConfig StatelessBernoulliTiling::BuildOpConfig()
     };
 
     config.getOutputSize = [](gert::TilingContext* ctx, int64_t& size) {
-        return RandomUtils::GetAndCheckOutputSize<INPUT_IDX_SHAPE, OUTPUT_IDX_Y>(ctx, size);
+        return RandomUtils::GetAndCheckOutputSize<INPUT_IDX_SHAPE, OUTPUT_IDX_Y, false>(ctx, size);
     };
 
     config.getSeedAndOffset = [](gert::TilingContext* ctx, int64_t& seed, int64_t& offset) {
