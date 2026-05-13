@@ -18,6 +18,7 @@
 
 #include "kernel_operator.h"
 #include "op_kernel/platform_util.h"
+#include "simt_api/asc_simt.h"
 #include "simt_api/asc_fp16.h"
 #include "simt_api/asc_bf16.h"
 #include "pad_v3_grad_struct.h"
@@ -117,8 +118,8 @@ __simt_vf__ LAUNCH_BOUND(CIRCULAR_EIGHTH_THREAD_DIM) __aicore__ void SimtCompute
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         GmOffsetType yIdx = idx;
@@ -157,8 +158,8 @@ __simt_vf__ LAUNCH_BOUND(CIRCULAR_EIGHTH_THREAD_DIM) __aicore__ void SimtCompute
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         uint64_t yIdx = idx;
@@ -203,8 +204,8 @@ __simt_vf__ LAUNCH_BOUND(CIRCULAR_EIGHTH_THREAD_DIM) __aicore__ void SimtCompute
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         GmOffsetType yIdx = idx;
@@ -256,8 +257,8 @@ __simt_vf__ LAUNCH_BOUND(CIRCULAR_EIGHTH_THREAD_DIM) __aicore__ void SimtCompute
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         GmOffsetType yIdx = idx;
@@ -314,8 +315,8 @@ __simt_vf__ LAUNCH_BOUND(CIRCULAR_EIGHTH_THREAD_DIM) __aicore__ void SimtCompute
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         GmOffsetType yIdx = idx;
@@ -421,28 +422,28 @@ __aicore__ inline void PadV3GradCircularSimt<T>::Process()
     }
 
     if (mTD_->dimNum == 1) {
-        Simt::VF_CALL<SimtComputeCircularOne<T, 1, U, GmOffsetType, CastType>>(
-            Simt::Dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeCircularOne<T, 1, U, GmOffsetType, CastType>>(
+            dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     } else if (mTD_->dimNum == 2) {
-        Simt::VF_CALL<SimtComputeCircularTwo<T, 2, U, GmOffsetType, CastType>>(
-            Simt::Dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeCircularTwo<T, 2, U, GmOffsetType, CastType>>(
+            dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     } else if (mTD_->dimNum == 3) {
-        Simt::VF_CALL<SimtComputeCircularThree<T, 3, U, GmOffsetType, CastType>>(
-            Simt::Dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeCircularThree<T, 3, U, GmOffsetType, CastType>>(
+            dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     } else if (mTD_->dimNum == 4) {
-        Simt::VF_CALL<SimtComputeCircularFour<T, 4, U, GmOffsetType, CastType>>(
-            Simt::Dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeCircularFour<T, 4, U, GmOffsetType, CastType>>(
+            dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     } else if (mTD_->dimNum == 5) {
-        Simt::VF_CALL<SimtComputeCircularFive<T, 5, U, GmOffsetType, CastType>>(
-            Simt::Dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeCircularFive<T, 5, U, GmOffsetType, CastType>>(
+            dim3(CIRCULAR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     }

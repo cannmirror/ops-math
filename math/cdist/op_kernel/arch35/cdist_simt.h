@@ -20,6 +20,9 @@
 #include <numeric>
 #include "../cdist_tiling_data.h"
 #include "simt_api/asc_simt.h"
+#include "simt_api/device_atomic_functions.h"
+#include "simt_api/asc_fp16.h"
+#include "simt_api/asc_bf16.h"
 #include "kernel_operator.h"
 
 #ifndef INFINITY
@@ -90,7 +93,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedZero(
     __gm__ T* x1GmAddr,  __gm__ T* x2GmAddr, __gm__ T* yGmAddr, int64_t outputBasicIndex, int64_t count,
     uint64_t m0, uint64_t s0, uint64_t m1, uint64_t s1, int64_t B, int64_t P, int64_t R, int64_t M)
 {  //输入BPM、BRM  输出BPR
-    for(uint64_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint64_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint64_t outputIdx = outputBasicIndex + index;
         uint64_t inputCurIdx = outputIdx;
         uint64_t Bidx = Simt::UintDiv(inputCurIdx, m0, s0);
@@ -105,8 +108,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedZero(
         yGmAddr[outputIdx] = 0;
         for(int64_t i = 0; i < M; i++) {
             float absNum = abs(static_cast<float>(x1GmAddr[inputIdx1+i]) - static_cast<float>(x2GmAddr[inputIdx2+i]));
-            float minNum = Simt::Min(Simt::Ceil(absNum), static_cast<float>(1));
-            Simt::AtomicAdd(yGmAddr + outputIdx, static_cast<T>(minNum));
+            float minNum = fminf(ceilf(absNum), static_cast<float>(1));
+            asc_atomic_add(yGmAddr + outputIdx, static_cast<T>(minNum));
         }
     }
 }
@@ -116,7 +119,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedInf(
     __gm__ T* x1GmAddr,  __gm__ T* x2GmAddr, __gm__ T* yGmAddr, int64_t outputBasicIndex, int64_t count,
     uint64_t m0, uint64_t s0, uint64_t m1, uint64_t s1, int64_t B, int64_t P, int64_t R, int64_t M)
 {  //输入BPM、BRM  输出BPR
-    for(uint64_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint64_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint64_t outputIdx = outputBasicIndex + index;
         uint64_t inputCurIdx = outputIdx;
         uint64_t Bidx = Simt::UintDiv(inputCurIdx, m0, s0);
@@ -131,7 +134,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedInf(
         yGmAddr[outputIdx] = 0;
         for(int64_t i = 0; i < M; i++) {
             float absNum = abs(static_cast<float>(x1GmAddr[inputIdx1+i]) - static_cast<float>(x2GmAddr[inputIdx2+i]));
-            Simt::AtomicMax(yGmAddr + outputIdx, static_cast<T>(absNum));
+            asc_atomic_max(yGmAddr + outputIdx, static_cast<T>(absNum));
         }
     }
 }
@@ -141,7 +144,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedOne(
     __gm__ T* x1GmAddr,  __gm__ T* x2GmAddr, __gm__ T* yGmAddr, int64_t outputBasicIndex, int64_t count,
     uint64_t m0, uint64_t s0, uint64_t m1, uint64_t s1, int64_t B, int64_t P, int64_t R, int64_t M)
 {  //输入BPM、BRM  输出BPR
-    for(uint64_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint64_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint64_t outputIdx = outputBasicIndex + index;
         uint64_t inputCurIdx = outputIdx;
         uint64_t Bidx = Simt::UintDiv(inputCurIdx, m0, s0);
@@ -167,7 +170,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedTwo(
     __gm__ T* x1GmAddr,  __gm__ T* x2GmAddr, __gm__ T* yGmAddr, int64_t outputBasicIndex, int64_t count,
     uint64_t m0, uint64_t s0, uint64_t m1, uint64_t s1, int64_t B, int64_t P, int64_t R, int64_t M)
 {  //输入BPM、BRM  输出BPR
-    for(uint64_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint64_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint64_t outputIdx = outputBasicIndex + index;
         uint64_t inputCurIdx = outputIdx;
         uint64_t Bidx = Simt::UintDiv(inputCurIdx, m0, s0);
@@ -194,7 +197,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedOther(
     __gm__ T* x1GmAddr,  __gm__ T* x2GmAddr, __gm__ T* yGmAddr, int64_t outputBasicIndex, int64_t count,
     uint64_t m0, uint64_t s0, uint64_t m1, uint64_t s1, int64_t B, int64_t P, int64_t R, int64_t M, float p)
 {  //输入BPM、BRM  输出BPR
-    for(uint64_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint64_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint64_t outputIdx = outputBasicIndex + index;
         uint64_t inputCurIdx = outputIdx;
         uint64_t Bidx = Simt::UintDiv(inputCurIdx, m0, s0);
@@ -239,24 +242,24 @@ __aicore__ inline void CdistSimt<T>::Process()
 
 
     if(p_ == 0.0f) {
-        Simt::VF_CALL<SimtStridedZero<T>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
+        asc_vf_call<SimtStridedZero<T>>(
+            dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
             magicPR, shiftPR, magicR, shiftR, B_, P_, R_, M_);
     } else if(p_ == 1.0f) {
-        Simt::VF_CALL<SimtStridedOne<T>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
+        asc_vf_call<SimtStridedOne<T>>(
+            dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
             magicPR, shiftPR, magicR, shiftR, B_, P_, R_, M_);
     } else if(p_ == static_cast<float>(INFINITY)) {
-        Simt::VF_CALL<SimtStridedInf<T>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
+        asc_vf_call<SimtStridedInf<T>>(
+            dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
             magicPR, shiftPR, magicR, shiftR, B_, P_, R_, M_);
     } else if(p_ == 2.0f) {
-        Simt::VF_CALL<SimtStridedTwo<T>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
+        asc_vf_call<SimtStridedTwo<T>>(
+            dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
             magicPR, shiftPR, magicR, shiftR, B_, P_, R_, M_);
     } else {
-        Simt::VF_CALL<SimtStridedOther<T>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
+        asc_vf_call<SimtStridedOther<T>>(
+            dim3{THREAD_NUM, 1, 1}, x1GmAddr, x2GmAddr, yGmAddr, curCoreBaseIndex_, curCoreEmelents_,
             magicPR, shiftPR, magicR, shiftR, B_, P_, R_, M_, p_);
     }
 }

@@ -14,6 +14,7 @@
 #include "kernel_operator_list_tensor_intf.h"
 #include "op_kernel/platform_util.h"
 #include "op_kernel/math_util.h"
+#include "simt_api/asc_simt.h"
 
 #ifdef __DAV_FPGA__
 constexpr int32_t THREAD_DIM = 512;
@@ -57,7 +58,7 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__
     void ProcessSingleOutputNew(__gm__ T* inputGM, __gm__ volatile T* outputGM, int32_t outputSize, int32_t nCurLen,
                                 int32_t nLen, int32_t preSumN, uint32_t shift, uint32_t m)
 {
-    for (uint32_t idx = Simt::GetThreadIdx(); idx < outputSize; idx += Simt::GetThreadNum()) {
+    for (uint32_t idx = threadIdx.x; idx < outputSize; idx += blockDim.x) {
         int32_t row = Simt::UintDiv(idx, m, shift);
         int32_t col = idx - row * nCurLen;
         int32_t inputIndex = row * nLen + col + preSumN;
@@ -100,7 +101,7 @@ __aicore__ inline void SplitVSIMT<T, U>::Process()
 
         uint32_t outputSize = mLen_ * nCurLen;
         yGm_.SetGlobalBuffer(GetTensorAddr(tensorIdx));
-        Simt::VF_CALL<ProcessSingleOutputNew<T>>(Simt::Dim3(THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()),
+        asc_vf_call<ProcessSingleOutputNew<T>>(dim3(THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()),
                                                  (__gm__ volatile T*)(yGm_.GetPhyAddr()), outputSize, nCurLen, nLen_,
                                                  colOffset, shift, m);
     }

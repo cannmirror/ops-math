@@ -18,6 +18,7 @@
 #include <type_traits>
 #include "kernel_operator.h"
 #include "matrix_diag_tiling_data_struct.h"
+#include "simt_api/asc_simt.h"
 
 namespace MatrixDiagAsc {
 using namespace AscendC;
@@ -63,7 +64,7 @@ template <typename T>
 __simt_vf__ __aicore__ LAUNCH_BOUND(HALF_THREAD_NUM_LAUNCH_BOUND) void MatrixDiagSIMTCompute(
     uint32_t nSize, uint32_t xBaseIdx, uint32_t curCoreElements, uint32_t magic0, uint32_t shift0, __gm__ T* x, __gm__ volatile T* y)
 {
-    for (uint32_t idx = Simt::GetThreadIdx(); idx < curCoreElements; idx += Simt::GetThreadNum()) {
+    for (uint32_t idx = threadIdx.x; idx < curCoreElements; idx += blockDim.x) {
         uint32_t xIdx = xBaseIdx + idx;
         uint32_t xDivVal = Simt::UintDiv(xIdx, magic0, shift0);
         uint64_t yIdx = (xIdx - xDivVal * nSize) * (nSize + 1) + xDivVal * (nSize * nSize);
@@ -130,8 +131,8 @@ __aicore__ inline void MatrixDiagSIMT<T>::Process()
     uint32_t shift0 = 0;
     GetUintDivMagicAndShift(magic0, shift0, nSize_);
     //SMIT搬移
-    Simt::VF_CALL<MatrixDiagSIMTCompute<T>>(
-        Simt::Dim3(threadNum_), nSize_, xBlockOffset, curCoreElements_, magic0, shift0, (__gm__ T*) (xGm_.GetPhyAddr()), (__gm__ volatile T*) (yGm_.GetPhyAddr()));
+    asc_vf_call<MatrixDiagSIMTCompute<T>>(
+        dim3(threadNum_), nSize_, xBlockOffset, curCoreElements_, magic0, shift0, (__gm__ T*) (xGm_.GetPhyAddr()), (__gm__ volatile T*) (yGm_.GetPhyAddr()));
 }
 
 template <typename T>

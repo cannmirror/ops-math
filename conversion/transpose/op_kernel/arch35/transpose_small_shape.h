@@ -16,6 +16,7 @@
 #define TRANSPOSE_SMALL_SHAPE_H
 
 #include "transpose_base.h"
+#include "simt_api/asc_simt.h"
 
 #ifdef __DAV_FPGA__
 constexpr int32_t THREAD_DIM = 512;
@@ -60,8 +61,8 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__ void SimtComputeDimTwo(
     __gm__ T* inputGM, __gm__ volatile T* outputGM, uint32_t coreFactor, uint32_t coreOffset, uint32_t outputShape0,
     uint32_t outputShape1, uint32_t m0, uint32_t m1, uint32_t s0, uint32_t s1)
 {
-    for (uint32_t idx = static_cast<uint32_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t idx = static_cast<uint32_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<uint32_t>(blockDim.x)) {
         uint32_t yIdx = coreOffset + idx;
         uint32_t inputIndex0 = yIdx - Simt::UintDiv(yIdx, m0, s0) * outputShape0;
         yIdx = Simt::UintDiv(yIdx, m0, s0);
@@ -77,8 +78,8 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__ void SimtComputeDimThree(
     uint32_t outputShape1, uint32_t outputShape2, uint32_t dstStride0, uint32_t dstStride1, uint32_t dstStride2,
     uint32_t m0, uint32_t m1, uint32_t m2, uint32_t s0, uint32_t s1, uint32_t s2)
 {
-    for (uint32_t idx = static_cast<uint32_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t idx = static_cast<uint32_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<uint32_t>(blockDim.x)) {
         uint32_t yIdx = coreOffset + idx;
         uint32_t inputIndex0 = yIdx - Simt::UintDiv(yIdx, m0, s0) * outputShape0;
         yIdx = Simt::UintDiv(yIdx, m0, s0);
@@ -97,8 +98,8 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__ void SimtComputeDimFour(
     uint32_t dstStride2, uint32_t dstStride3, uint32_t m0, uint32_t m1, uint32_t m2, uint32_t m3, uint32_t s0,
     uint32_t s1, uint32_t s2, uint32_t s3)
 {
-    for (uint32_t idx = static_cast<uint32_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t idx = static_cast<uint32_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<uint32_t>(blockDim.x)) {
         uint32_t yIdx = coreOffset + idx;
         uint32_t inputIndex0 = yIdx - Simt::UintDiv(yIdx, m0, s0) * outputShape0;
         yIdx = Simt::UintDiv(yIdx, m0, s0);
@@ -120,8 +121,8 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__ void SimtComputeDimFive(
     uint32_t dstStride1, uint32_t dstStride2, uint32_t dstStride3, uint32_t dstStride4, uint32_t m0, uint32_t m1,
     uint32_t m2, uint32_t m3, uint32_t m4, uint32_t s0, uint32_t s1, uint32_t s2, uint32_t s3, uint32_t s4)
 {
-    for (uint32_t idx = static_cast<uint32_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t idx = static_cast<uint32_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<uint32_t>(blockDim.x)) {
         uint32_t yIdx = coreOffset + idx;
         uint32_t inputIndex0 = yIdx - Simt::UintDiv(yIdx, m0, s0) * outputShape0;
         yIdx = Simt::UintDiv(yIdx, m0, s0);
@@ -146,8 +147,8 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__ void SimtComputeDimSix(
     uint32_t dstStride5, uint32_t m0, uint32_t m1, uint32_t m2, uint32_t m3, uint32_t m4, uint32_t m5, uint32_t s0,
     uint32_t s1, uint32_t s2, uint32_t s3, uint32_t s4, uint32_t s5)
 {
-    for (uint32_t idx = static_cast<uint32_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t idx = static_cast<uint32_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<uint32_t>(blockDim.x)) {
         uint32_t yIdx = coreOffset + idx;
         uint32_t inputIndex0 = yIdx - Simt::UintDiv(yIdx, m0, s0) * outputShape0;
         yIdx = Simt::UintDiv(yIdx, m0, s0);
@@ -175,8 +176,8 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__ void SimtComputeDimSeven(
     uint32_t m4, uint32_t m5, uint32_t m6, uint32_t s0, uint32_t s1, uint32_t s2, uint32_t s3, uint32_t s4, uint32_t s5,
     uint32_t s6)
 {
-    for (uint32_t idx = static_cast<uint32_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t idx = static_cast<uint32_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<uint32_t>(blockDim.x)) {
         uint32_t yIdx = coreOffset + idx;
         uint32_t inputIndex0 = yIdx - Simt::UintDiv(yIdx, m0, s0) * outputShape0;
         yIdx = Simt::UintDiv(yIdx, m0, s0);
@@ -207,8 +208,8 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__ void SimtComputeDimEight(
     uint32_t m0, uint32_t m1, uint32_t m2, uint32_t m3, uint32_t m4, uint32_t m5, uint32_t m6, uint32_t m7, uint32_t s0,
     uint32_t s1, uint32_t s2, uint32_t s3, uint32_t s4, uint32_t s5, uint32_t s6, uint32_t s7)
 {
-    for (uint32_t idx = static_cast<uint32_t>(Simt::GetThreadIdx()); idx < coreFactor;
-         idx += static_cast<uint32_t>(Simt::GetThreadNum())) {
+    for (uint32_t idx = static_cast<uint32_t>(threadIdx.x); idx < coreFactor;
+         idx += static_cast<uint32_t>(blockDim.x)) {
         uint32_t yIdx = coreOffset + idx;
         uint32_t inputIndex0 = yIdx - Simt::UintDiv(yIdx, m0, s0) * outputShape0;
         yIdx = Simt::UintDiv(yIdx, m0, s0);
@@ -264,42 +265,42 @@ __aicore__ inline void TransposeSmallShape<T>::Process()
     }
 
     if (permSize == DIM_TWO) {
-        Simt::VF_CALL<SimtComputeDimTwo<T>>(
-            Simt::Dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeDimTwo<T>>(
+            dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
             blkProcessNum, blkStartOffset, outputShape[0], outputShape[1], m[0], m[1], shift[0], shift[1]);
     } else if (permSize == DIM_THREE) {
-        Simt::VF_CALL<SimtComputeDimThree<T>>(
-            Simt::Dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeDimThree<T>>(
+            dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
             blkProcessNum, blkStartOffset, outputShape[0], outputShape[1], outputShape[2], dstStride[0], dstStride[1],
             dstStride[2], m[0], m[1], m[2], shift[0], shift[1], shift[2]);
     } else if (permSize == DIM_FOUR) {
-        Simt::VF_CALL<SimtComputeDimFour<T>>(
-            Simt::Dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeDimFour<T>>(
+            dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
             blkProcessNum, blkStartOffset, outputShape[0], outputShape[1], outputShape[2], outputShape[3], dstStride[0],
             dstStride[1], dstStride[2], dstStride[3], m[0], m[1], m[2], m[3], shift[0], shift[1], shift[2], shift[3]);
     } else if (permSize == DIM_FIVE) {
-        Simt::VF_CALL<SimtComputeDimFive<T>>(
-            Simt::Dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeDimFive<T>>(
+            dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
             blkProcessNum, blkStartOffset, outputShape[0], outputShape[1], outputShape[2], outputShape[3],
             outputShape[4], dstStride[0], dstStride[1], dstStride[2], dstStride[3], dstStride[4], m[0], m[1], m[2],
             m[3], m[4], shift[0], shift[1], shift[2], shift[3], shift[4]);
     } else if (permSize == DIM_SIX) {
-        Simt::VF_CALL<SimtComputeDimSix<T>>(
-            Simt::Dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeDimSix<T>>(
+            dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
             blkProcessNum, blkStartOffset, outputShape[0], outputShape[1], outputShape[2], outputShape[3],
             outputShape[4], outputShape[5], dstStride[0], dstStride[1], dstStride[2], dstStride[3], dstStride[4],
             dstStride[5], m[0], m[1], m[2], m[3], m[4], m[5], shift[0], shift[1], shift[2], shift[3], shift[4],
             shift[5]);
     } else if (permSize == DIM_SEVEN) {
-        Simt::VF_CALL<SimtComputeDimSeven<T>>(
-            Simt::Dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeDimSeven<T>>(
+            dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
             blkProcessNum, blkStartOffset, outputShape[0], outputShape[1], outputShape[2], outputShape[3],
             outputShape[4], outputShape[5], outputShape[6], dstStride[0], dstStride[1], dstStride[2], dstStride[3],
             dstStride[4], dstStride[5], dstStride[6], m[0], m[1], m[2], m[3], m[4], m[5], m[6], shift[0], shift[1],
             shift[2], shift[3], shift[4], shift[5], shift[6]);
     } else if (permSize == DIM_EIGHT) {
-        Simt::VF_CALL<SimtComputeDimEight<T>>(
-            Simt::Dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeDimEight<T>>(
+            dim3(THREAD_DIM), (__gm__ T*)(inputGM_.GetPhyAddr()), (__gm__ volatile T*)(outputGM_.GetPhyAddr()),
             blkProcessNum, blkStartOffset, outputShape[0], outputShape[1], outputShape[2], outputShape[3],
             outputShape[4], outputShape[5], outputShape[6], outputShape[7], dstStride[0], dstStride[1], dstStride[2],
             dstStride[3], dstStride[4], dstStride[5], dstStride[6], dstStride[7], m[0], m[1], m[2], m[3], m[4], m[5],

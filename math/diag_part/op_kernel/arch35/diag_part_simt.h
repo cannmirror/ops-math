@@ -19,6 +19,7 @@
 #include "kernel_operator_list_tensor_intf.h"
 #include "op_kernel/math_util.h"
 #include "op_kernel/platform_util.h"
+#include "simt_api/asc_simt.h"
 
 constexpr int32_t DOUBLE_THREAD_DIM = 2048;
 constexpr int32_t THREAD_DIM = 1024;
@@ -58,8 +59,8 @@ __simt_vf__ LAUNCH_BOUND(DOUBLE_THREAD_DIM) __aicore__ void ProcessDoubleSingleB
     int64_t blockLen)
 {
     int64_t startSideLen = startBlock * blockLen;
-    for (int64_t idx = startSideLen + Simt::GetThreadIdx(); idx < startSideLen + processNum;
-         idx += Simt::GetThreadNum()) {
+    for (int64_t idx = startSideLen + threadIdx.x; idx < startSideLen + processNum;
+         idx += blockDim.x) {
         int64_t inputIndex = idx * sideLen + idx;
         outputGM[idx] = inputGM[inputIndex];
     }
@@ -71,8 +72,8 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__ void ProcessSingleBlock(
     int64_t blockLen)
 {
     int64_t startSideLen = startBlock * blockLen;
-    for (int64_t idx = startSideLen + Simt::GetThreadIdx(); idx < startSideLen + processNum;
-         idx += Simt::GetThreadNum()) {
+    for (int64_t idx = startSideLen + threadIdx.x; idx < startSideLen + processNum;
+         idx += blockDim.x) {
         int64_t inputIndex = idx * sideLen + idx;
         outputGM[idx] = inputGM[inputIndex];
     }
@@ -84,8 +85,8 @@ __simt_vf__ LAUNCH_BOUND(HALF_THREAD_DIM) __aicore__ void ProcessSingleBlockHalf
     int64_t blockLen)
 {
     int64_t startSideLen = startBlock * blockLen;
-    for (int64_t idx = startSideLen + Simt::GetThreadIdx(); idx < startSideLen + processNum;
-         idx += Simt::GetThreadNum()) {
+    for (int64_t idx = startSideLen + threadIdx.x; idx < startSideLen + processNum;
+         idx += blockDim.x) {
         int64_t inputIndex = idx * sideLen + idx;
         outputGM[idx] = inputGM[inputIndex];
     }
@@ -97,8 +98,8 @@ __simt_vf__ LAUNCH_BOUND(QUARTER_THREAD_DIM) __aicore__ void ProcessSingleBlockQ
     int64_t blockLen)
 {
     int64_t startSideLen = startBlock * blockLen;
-    for (int64_t idx = startSideLen + Simt::GetThreadIdx(); idx < startSideLen + processNum;
-         idx += Simt::GetThreadNum()) {
+    for (int64_t idx = startSideLen + threadIdx.x; idx < startSideLen + processNum;
+         idx += blockDim.x) {
         int64_t inputIndex = idx * sideLen + idx;
         outputGM[idx] = inputGM[inputIndex];
     }
@@ -110,8 +111,8 @@ __simt_vf__ LAUNCH_BOUND(AN_EIGHTH_THREAD_DIM) __aicore__ void ProcessSingleBloc
     int64_t blockLen)
 {
     int64_t startSideLen = startBlock * blockLen;
-    for (int64_t idx = startSideLen + Simt::GetThreadIdx(); idx < startSideLen + processNum;
-         idx += Simt::GetThreadNum()) {
+    for (int64_t idx = startSideLen + threadIdx.x; idx < startSideLen + processNum;
+         idx += blockDim.x) {
         int64_t inputIndex = idx * sideLen + idx;
         outputGM[idx] = inputGM[inputIndex];
     }
@@ -150,24 +151,24 @@ __aicore__ inline void DiagPartSimt<T>::Process()
             blockIdx_ < mainCoreNum ? (loopNum + 1) * tilingData_->numPerCore : loopNum * tilingData_->numPerCore;
     }
     if (processNum <= AN_EIGHTH_THREAD_DIM) {
-        Simt::VF_CALL<ProcessSingleBlockEighth<T>>(
-            Simt::Dim3(AN_EIGHTH_THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
+        asc_vf_call<ProcessSingleBlockEighth<T>>(
+            dim3(AN_EIGHTH_THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
             processNum, curBlockLoopNumStart_, blockLen);
     } else if (processNum <= QUARTER_THREAD_DIM) {
-        Simt::VF_CALL<ProcessSingleBlockQuarter<T>>(
-            Simt::Dim3(QUARTER_THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
+        asc_vf_call<ProcessSingleBlockQuarter<T>>(
+            dim3(QUARTER_THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
             processNum, curBlockLoopNumStart_, blockLen);
     } else if (processNum <= HALF_THREAD_DIM) {
-        Simt::VF_CALL<ProcessSingleBlockHalf<T>>(
-            Simt::Dim3(HALF_THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
+        asc_vf_call<ProcessSingleBlockHalf<T>>(
+            dim3(HALF_THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
             processNum, curBlockLoopNumStart_, blockLen);
     } else if (processNum <= THREAD_DIM) {
-        Simt::VF_CALL<ProcessSingleBlock<T>>(
-            Simt::Dim3(THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
+        asc_vf_call<ProcessSingleBlock<T>>(
+            dim3(THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
             processNum, curBlockLoopNumStart_, blockLen);
     } else {
-        Simt::VF_CALL<ProcessDoubleSingleBlock<T>>(
-            Simt::Dim3(DOUBLE_THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
+        asc_vf_call<ProcessDoubleSingleBlock<T>>(
+            dim3(DOUBLE_THREAD_DIM), (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ T*)(yGm_.GetPhyAddr()), sideLen_,
             processNum, curBlockLoopNumStart_, blockLen);
     }
 }

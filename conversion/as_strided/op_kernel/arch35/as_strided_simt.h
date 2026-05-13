@@ -18,6 +18,7 @@
 
 #include "as_strided.h"
 #include "kernel_operator.h"
+#include "simt_api/asc_simt.h"
 
 namespace AsStrided {
 using namespace AscendC;
@@ -78,7 +79,7 @@ template <typename T, uint16_t Dim>
 __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedDim1(
     __gm__ T* inputGmAddr,  __gm__ T* outputGmAddr, uint32_t outputBasicIndex, uint32_t count, uint32_t strideArr0)
 {  
-    for(uint32_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint32_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint32_t outputIdx = outputBasicIndex + index;
         uint32_t inputDimIdx = outputIdx;
         uint32_t inputIdx = strideArr0 * inputDimIdx;
@@ -92,7 +93,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedDim2(
     __gm__ T* inputGmAddr,  __gm__ T* outputGmAddr, uint32_t outputBasicIndex, uint32_t count, uint32_t strideArr0,
     uint32_t strideArr1, uint32_t sizeStride0, uint32_t m0, uint32_t s0)
 {  
-    for(uint32_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint32_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint32_t outputIdx = outputBasicIndex + index;
         uint32_t inputCurIdx = outputIdx;
         uint32_t inputDimIdx[Dim] = {0};
@@ -113,7 +114,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedDim3(
     __gm__ T* inputGmAddr,  __gm__ T* outputGmAddr, uint32_t outputBasicIndex, uint32_t count, uint32_t strideArr0,
     uint32_t strideArr1, uint32_t strideArr2, uint32_t sizeStride0, uint32_t sizeStride1, uint32_t m0, uint32_t s0, uint32_t m1, uint32_t s1)
 {  
-    for(uint32_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint32_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint32_t outputIdx = outputBasicIndex + index;
         uint32_t inputCurIdx = outputIdx;
         uint32_t inputDimIdx[Dim] = {0};
@@ -138,7 +139,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedDim4(
     uint32_t strideArr1, uint32_t strideArr2, uint32_t strideArr3, uint32_t sizeStride0, uint32_t sizeStride1, uint32_t sizeStride2,
     uint32_t m0, uint32_t s0, uint32_t m1, uint32_t s1, uint32_t m2, uint32_t s2)
 {  
-    for(uint32_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint32_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint32_t outputIdx = outputBasicIndex + index;
         uint32_t inputCurIdx = outputIdx;
         uint32_t inputDimIdx[Dim] = {0};
@@ -167,7 +168,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedDim5(
     uint32_t m2, uint32_t s2, uint32_t m3, uint32_t s3)
 {  
     GET_TILING_DATA_PTR_WITH_STRUCT(AsStridedSimtTilingData, tdGmPtr, tiling);
-    for(uint32_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint32_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint32_t outputIdx = outputBasicIndex + index;
         uint32_t inputCurIdx = outputIdx;
         uint32_t inputDimIdx[Dim] = {0};
@@ -199,7 +200,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedDim6(
     uint32_t m1, uint32_t s1, uint32_t m2, uint32_t s2, uint32_t m3, uint32_t s3, uint32_t m4, uint32_t s4)
 {  
     GET_TILING_DATA_PTR_WITH_STRUCT(AsStridedSimtTilingData, tdGmPtr, tiling);
-    for(uint32_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint32_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint32_t outputIdx = outputBasicIndex + index;
         uint32_t inputCurIdx = outputIdx;
         uint32_t inputDimIdx[Dim] = {0};
@@ -234,7 +235,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedDim7(
     uint32_t m1, uint32_t s1, uint32_t m2, uint32_t s2, uint32_t m3, uint32_t s3, uint32_t m4, uint32_t s4, uint32_t m5, uint32_t s5)
 {  
     GET_TILING_DATA_PTR_WITH_STRUCT(AsStridedSimtTilingData, tdGmPtr, tiling);
-    for(uint32_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint32_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint32_t outputIdx = outputBasicIndex + index;
         uint32_t inputCurIdx = outputIdx;
         uint32_t inputDimIdx[Dim] = {0};
@@ -274,7 +275,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedDim8(
     uint32_t m4, uint32_t s4, uint32_t m5, uint32_t s5, uint32_t m6, uint32_t s6)
 {  
     GET_TILING_DATA_PTR_WITH_STRUCT(AsStridedSimtTilingData, tdGmPtr, tiling);
-    for(uint32_t index = Simt::GetThreadIdx(); index < count; index += Simt::GetThreadNum()) {
+    for(uint32_t index = threadIdx.x; index < count; index += blockDim.x) {
         uint32_t outputIdx = outputBasicIndex + index;
         uint32_t inputCurIdx = outputIdx;
         uint32_t inputDimIdx[Dim] = {0};
@@ -322,41 +323,41 @@ __aicore__ inline void AsStridedSimt<T>::Process(GM_ADDR tiling)
     __gm__ T* outputGmAddr = (__gm__ T*)outputGm_.GetPhyAddr();
     
     if (dimNum_ == DIMS_1) {
-        Simt::VF_CALL<SimtStridedDim1<T, DIMS_1>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0]); 
+        asc_vf_call<SimtStridedDim1<T, DIMS_1>>(
+            dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0]); 
     } else if (dimNum_ == DIMS_2) {
-        Simt::VF_CALL<SimtStridedDim2<T, DIMS_2>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
+        asc_vf_call<SimtStridedDim2<T, DIMS_2>>(
+            dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
             tilingData_->strideArr[1], tilingData_->outSizeStride[0], magic[0], shift[0]); 
     } else if (dimNum_ == DIMS_3) {
-        Simt::VF_CALL<SimtStridedDim3<T, DIMS_3>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
+        asc_vf_call<SimtStridedDim3<T, DIMS_3>>(
+            dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
             tilingData_->strideArr[1], tilingData_->strideArr[2], tilingData_->outSizeStride[0], tilingData_->outSizeStride[1],
             magic[0], shift[0], magic[1], shift[1]); 
     } else if (dimNum_ == DIMS_4) {
-        Simt::VF_CALL<SimtStridedDim4<T, DIMS_4>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
+        asc_vf_call<SimtStridedDim4<T, DIMS_4>>(
+            dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
             tilingData_->strideArr[1], tilingData_->strideArr[2], tilingData_->strideArr[3], tilingData_->outSizeStride[0],
             tilingData_->outSizeStride[1], tilingData_->outSizeStride[2], magic[0], shift[0], magic[1], shift[1], magic[2], shift[2]); 
     } else if (dimNum_ == DIMS_5) {
-        Simt::VF_CALL<SimtStridedDim5<T, DIMS_5>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, tiling, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
+        asc_vf_call<SimtStridedDim5<T, DIMS_5>>(
+            dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, tiling, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
             tilingData_->strideArr[1], tilingData_->strideArr[2], tilingData_->strideArr[3], tilingData_->strideArr[4],
             magic[0], shift[0], magic[1], shift[1], magic[2], shift[2], magic[3], shift[3]); 
     } else if (dimNum_ == DIMS_6) {
-        Simt::VF_CALL<SimtStridedDim6<T, DIMS_6>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, tiling, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
+        asc_vf_call<SimtStridedDim6<T, DIMS_6>>(
+            dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, tiling, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
             tilingData_->strideArr[1], tilingData_->strideArr[2], tilingData_->strideArr[3], tilingData_->strideArr[4],
             tilingData_->strideArr[5], magic[0], shift[0], magic[1], shift[1], magic[2], shift[2], magic[3], shift[3], magic[4], shift[4]); 
     } else if (dimNum_ == DIMS_7) {
-        Simt::VF_CALL<SimtStridedDim7<T, DIMS_7>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, tiling, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
+        asc_vf_call<SimtStridedDim7<T, DIMS_7>>(
+            dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, tiling, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
             tilingData_->strideArr[1], tilingData_->strideArr[2], tilingData_->strideArr[3], tilingData_->strideArr[4],
             tilingData_->strideArr[5], tilingData_->strideArr[6], magic[0], shift[0], magic[1], shift[1], magic[2], shift[2],
             magic[3], shift[3], magic[4], shift[4], magic[5], shift[5]); 
     } else if (dimNum_ == DIMS_8) {
-        Simt::VF_CALL<SimtStridedDim8<T, DIMS_8>>(
-            Simt::Dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, tiling, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
+        asc_vf_call<SimtStridedDim8<T, DIMS_8>>(
+            dim3{THREAD_NUM, 1, 1}, inputGmAddr, outputGmAddr, tiling, curCoreBaseIndex_, curCoreElements_, tilingData_->strideArr[0],
             tilingData_->strideArr[1], tilingData_->strideArr[2], tilingData_->strideArr[3], tilingData_->strideArr[4], 
             tilingData_->strideArr[5], tilingData_->strideArr[6], tilingData_->strideArr[7], magic[0], shift[0], magic[1], shift[1],
             magic[2], shift[2], magic[3], shift[3], magic[4], shift[4], magic[5], shift[5], magic[6], shift[6]);   

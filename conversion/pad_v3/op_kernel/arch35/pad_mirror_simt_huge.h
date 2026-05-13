@@ -18,6 +18,7 @@
 
 #include "pad_common.h"
 #include "pad_v3_struct.h"
+#include "simt_api/asc_simt.h"
 
 #ifdef __DAV_FPGA__
 constexpr int32_t REFLECT_HUGE_THREAD_DIM = 512;
@@ -62,8 +63,8 @@ __simt_vf__ LAUNCH_BOUND(REFLECT_HUGE_HALF_THREAD_DIM) __aicore__ void SimtCompu
     __gm__ T* inputGM, __gm__ volatile T* outputGM, uint64_t outputSize, uint32_t blockIdx, uint32_t blockNum,
     uint64_t inShape0, int64_t left0)
 {
-    for (uint64_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint64_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         int64_t inIndex0 = idx;
 
         if constexpr (IS_REFLECT) {
@@ -82,8 +83,8 @@ __simt_vf__ LAUNCH_BOUND(REFLECT_HUGE_HALF_THREAD_DIM) __aicore__ void SimtCompu
     __gm__ T* inputGM, __gm__ volatile T* outputGM, uint64_t outputSize, uint32_t blockIdx, uint32_t blockNum,
     uint64_t outStride0, uint64_t inShape0, uint64_t inShape1, uint64_t m0, uint64_t s0, int64_t left0, int64_t left1)
 {
-    for (uint64_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint64_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint64_t dstIdx = idx;
         int64_t inIndex[DIM] = {0};
 
@@ -116,8 +117,8 @@ __simt_vf__ LAUNCH_BOUND(REFLECT_HUGE_HALF_THREAD_DIM) __aicore__ void SimtCompu
     uint64_t outStride0, uint64_t outStride1, uint64_t inShape0, uint64_t inShape1, uint64_t inShape2, uint64_t m0,
     uint64_t m1, uint64_t s0, uint64_t s1, int64_t left0, int64_t left1, int64_t left2)
 {
-    for (uint64_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint64_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint64_t dstIdx = idx;
         int64_t inIndex[DIM] = {0};
 
@@ -160,8 +161,8 @@ __simt_vf__ LAUNCH_BOUND(REFLECT_HUGE_QUATER_THREAD_DIM) __aicore__ void SimtCom
     uint32_t blockNum, uint64_t m0, uint64_t m1, uint64_t m2, uint64_t s0, uint64_t s1, uint64_t s2)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint64_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint64_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint64_t dstIdx = idx;
         int64_t inIndex[DIM] = {0};
 
@@ -204,8 +205,8 @@ __simt_vf__ LAUNCH_BOUND(REFLECT_HUGE_QUATER_THREAD_DIM) __aicore__ void SimtCom
     uint64_t s3)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint64_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint64_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint64_t dstIdx = idx;
         int64_t inIndex[DIM] = {0};
 
@@ -251,8 +252,8 @@ __simt_vf__ LAUNCH_BOUND(REFLECT_HUGE_QUATER_THREAD_DIM) __aicore__ void SimtCom
     uint64_t s2, uint64_t s3, uint64_t s4)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint64_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint64_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint64_t dstIdx = idx;
         int64_t inIndex[DIM] = {0};
 
@@ -301,8 +302,8 @@ __simt_vf__ LAUNCH_BOUND(REFLECT_HUGE_QUATER_THREAD_DIM) __aicore__ void SimtCom
     uint64_t s1, uint64_t s2, uint64_t s3, uint64_t s4, uint64_t s5)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint64_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint64_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint64_t dstIdx = idx;
         int64_t inIndex[DIM] = {0};
 
@@ -354,8 +355,8 @@ __simt_vf__ LAUNCH_BOUND(REFLECT_HUGE_AN_EIGHTH_THREAD_DIM) __aicore__ void Simt
     uint64_t s0, uint64_t s1, uint64_t s2, uint64_t s3, uint64_t s4, uint64_t s5, uint64_t s6)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint64_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint64_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint64_t dstIdx = idx;
         int64_t inIndex[DIM] = {0};
 
@@ -414,8 +415,8 @@ __aicore__ inline void PadReflectSimtHuge<T, KEY>::Process(GM_ADDR tiling)
     uint32_t mDimNum = mTD_->dimNum;
 
     if (mDimNum == 1) {
-        Simt::VF_CALL<SimtComputeReflectHugeDimOne<T, IS_REFLECT>>(
-            Simt::Dim3(REFLECT_HUGE_HALF_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeReflectHugeDimOne<T, IS_REFLECT>>(
+            dim3(REFLECT_HUGE_HALF_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), mTD_->outShape[0], mBlockIdx_, blockNum, mTD_->inShape[0],
             mTD_->leftPad[0]);
         return;
@@ -431,39 +432,39 @@ __aicore__ inline void PadReflectSimtHuge<T, KEY>::Process(GM_ADDR tiling)
     }
 
     if (mDimNum == 2) {
-        Simt::VF_CALL<SimtComputeReflectHugeDimTwo<T, 2, IS_REFLECT>>(
-            Simt::Dim3(REFLECT_HUGE_HALF_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeReflectHugeDimTwo<T, 2, IS_REFLECT>>(
+            dim3(REFLECT_HUGE_HALF_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, mTD_->outStride[0],
             mTD_->inShape[0], mTD_->inShape[1], m[0], s[0], mTD_->leftPad[0], mTD_->leftPad[1]);
     } else if (mDimNum == 3) {
-        Simt::VF_CALL<SimtComputeReflectHugeDimThree<T, 3, IS_REFLECT>>(
-            Simt::Dim3(REFLECT_HUGE_HALF_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeReflectHugeDimThree<T, 3, IS_REFLECT>>(
+            dim3(REFLECT_HUGE_HALF_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, mTD_->outStride[0],
             mTD_->outStride[1], mTD_->inShape[0], mTD_->inShape[1], mTD_->inShape[2], m[0], m[1], s[0], s[1],
             mTD_->leftPad[0], mTD_->leftPad[1], mTD_->leftPad[2]);
     } else if (mDimNum == 4) {
-        Simt::VF_CALL<SimtComputeReflectHugeDimFour<T, 4, IS_REFLECT>>(
-            Simt::Dim3(REFLECT_HUGE_QUATER_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeReflectHugeDimFour<T, 4, IS_REFLECT>>(
+            dim3(REFLECT_HUGE_QUATER_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2],
             s[0], s[1], s[2]);
     } else if (mDimNum == 5) {
-        Simt::VF_CALL<SimtComputeReflectHugeDimFive<T, 5, IS_REFLECT>>(
-            Simt::Dim3(REFLECT_HUGE_QUATER_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeReflectHugeDimFive<T, 5, IS_REFLECT>>(
+            dim3(REFLECT_HUGE_QUATER_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2],
             m[3], s[0], s[1], s[2], s[3]);
     } else if (mDimNum == 6) {
-        Simt::VF_CALL<SimtComputeReflectHugeDimSix<T, 6, IS_REFLECT>>(
-            Simt::Dim3(REFLECT_HUGE_QUATER_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeReflectHugeDimSix<T, 6, IS_REFLECT>>(
+            dim3(REFLECT_HUGE_QUATER_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2],
             m[3], m[4], s[0], s[1], s[2], s[3], s[4]);
     } else if (mDimNum == 7) {
-        Simt::VF_CALL<SimtComputeReflectHugeDimSeven<T, 7, IS_REFLECT>>(
-            Simt::Dim3(REFLECT_HUGE_QUATER_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeReflectHugeDimSeven<T, 7, IS_REFLECT>>(
+            dim3(REFLECT_HUGE_QUATER_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2],
             m[3], m[4], m[5], s[0], s[1], s[2], s[3], s[4], s[5]);
     } else if (mDimNum == 8) {
-        Simt::VF_CALL<SimtComputeReflectHugeDimEight<T, 8, IS_REFLECT>>(
-            Simt::Dim3(REFLECT_HUGE_AN_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeReflectHugeDimEight<T, 8, IS_REFLECT>>(
+            dim3(REFLECT_HUGE_AN_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2],
             m[3], m[4], m[5], m[6], s[0], s[1], s[2], s[3], s[4], s[5], s[6]);
     }

@@ -19,6 +19,7 @@
 #include "kernel_operator.h"
 #include "roll_struct.h"
 #include "op_kernel/platform_util.h"
+#include "simt_api/asc_simt.h"
 
 namespace Roll {
 using namespace AscendC;
@@ -74,8 +75,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtDataShift(
     __gm__ T* xGmAddr, __gm__ T* yGmAddr, int64_t inputBasicIndex, int64_t count, int64_t dimNum,
     __ubuf__ int64_t* shapes, __ubuf__ int64_t* strides, __ubuf__ int64_t* shifts)
 {
-    for (int64_t index = static_cast<int64_t>(Simt::GetThreadIdx()); index < count;
-         index += static_cast<int32_t>(Simt::GetThreadNum())) {
+    for (int64_t index = static_cast<int64_t>(threadIdx.x); index < count;
+         index += static_cast<int32_t>(blockDim.x)) {
         int64_t inputIndex = inputBasicIndex + index;
         int64_t inputDimIndex = inputIndex;
         int64_t outputIndex = 0;
@@ -109,8 +110,8 @@ __aicore__ inline void RollSimt<T>::Process()
     __ubuf__ int64_t* shapesAddr = (__ubuf__ int64_t*)shapes.GetPhyAddr();
     __ubuf__ int64_t* stridesAddr = (__ubuf__ int64_t*)strides.GetPhyAddr();
     __ubuf__ int64_t* shiftsAddr = (__ubuf__ int64_t*)shifts.GetPhyAddr();
-    Simt::VF_CALL<SimtDataShift<T>>(
-        Simt::Dim3{THREAD_NUM, 1, 1}, xGmAddr, yGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->dimNum,
+    asc_vf_call<SimtDataShift<T>>(
+        dim3{THREAD_NUM, 1, 1}, xGmAddr, yGmAddr, curCoreBaseIndex_, curCoreElements_, tilingData_->dimNum,
         shapesAddr, stridesAddr, shiftsAddr);
 }
 

@@ -18,6 +18,7 @@
 #include <type_traits>
 #include "kernel_operator.h"
 #include "im2col_tilingdata.h"
+#include "simt_api/asc_simt.h"
 
 namespace Im2ColAsc {
 using namespace AscendC;
@@ -67,7 +68,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(HALF_THREAD_NUM_LAUNCH_BOUND) void Im2ColSIM
     __gm__ volatile T* y)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(Im2ColSIMTTilingData, tdGmPtr, tiling);
-    for (uint64_t idx = Simt::GetThreadIdx(); idx < curCoreElement; idx += Simt::GetThreadNum()) {
+    for (uint64_t idx = threadIdx.x; idx < curCoreElement; idx += blockDim.x) {
         U index = U(yBaseIdx + idx);
 
         U indexDivC = Simt::UintDiv(index, magic0, shift0);
@@ -170,8 +171,8 @@ __aicore__ inline void Im2ColSIMT_NHWC<T, U>::Process(GM_ADDR tiling)
     GetUintDivMagicAndShift(magic3, shift3, convKernelNumInWidth_);
     GetUintDivMagicAndShift(magic4, shift4, convKernelNumInHeight_);
     // SMIT搬移
-    Simt::VF_CALL<Im2ColSIMTNHWCCompute<T, U>>(
-        Simt::Dim3(threadNum_), channel_, hKSize_, wKSize_, convKernelNumInHeight_, convKernelNumInWidth_, yBlockOffset, curCoreElement_,
+    asc_vf_call<Im2ColSIMTNHWCCompute<T, U>>(
+        dim3(threadNum_), channel_, hKSize_, wKSize_, convKernelNumInHeight_, convKernelNumInWidth_, yBlockOffset, curCoreElement_,
         magic0, shift0, magic1, shift1, magic2, shift2, magic3, shift3, magic4, shift4, tiling,
         (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ volatile T*)(yGm_.GetPhyAddr()));
 }

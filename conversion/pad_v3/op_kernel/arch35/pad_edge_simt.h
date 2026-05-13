@@ -18,6 +18,7 @@
 
 #include "pad_common.h"
 #include "pad_v3_struct.h"
+#include "simt_api/asc_simt.h"
 
 #ifdef __DAV_FPGA__
 constexpr int32_t EDGE_THREAD_DIM = 512;
@@ -59,8 +60,8 @@ __simt_vf__ LAUNCH_BOUND(EDGE_THREAD_DIM) __aicore__ void SimtComputeEdgeDimOne(
     __gm__ T* inputGM, __gm__ volatile T* outputGM, uint32_t outputSize, uint32_t blockIdx,
     uint32_t blockNum, uint32_t inShape0, int32_t left0)
 {
-    for (uint32_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint32_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         int32_t inIndex0 = idx - left0;
         inIndex0 = min(max(inIndex0,0), int32_t(inShape0 - 1));
         outputGM[idx] = inputGM[inIndex0];
@@ -73,8 +74,8 @@ __simt_vf__ LAUNCH_BOUND(EDGE_THREAD_DIM) __aicore__ void SimtComputeEdgeDimTwo(
     uint32_t blockNum, uint32_t outStride0, uint32_t inShape0, uint32_t inShape1, uint32_t m0, uint32_t s0,
     int32_t left0, int32_t left1)
 {
-    for (uint32_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint32_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint32_t dstIdx = idx;
         int32_t inIndex[DIM] = {0};
 
@@ -98,8 +99,8 @@ __simt_vf__ LAUNCH_BOUND(EDGE_THREAD_DIM) __aicore__ void SimtComputeEdgeDimThre
     uint32_t blockNum, uint32_t outStride0, uint32_t outStride1, uint32_t inShape0, uint32_t inShape1, uint32_t inShape2,
     uint32_t m0, uint32_t m1, uint32_t s0, uint32_t s1, int32_t left0, int32_t left1, int32_t left2)
 {
-    for (uint32_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint32_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint32_t dstIdx = idx;
         int32_t inIndex[DIM] = {0};
 
@@ -128,8 +129,8 @@ __simt_vf__ LAUNCH_BOUND(EDGE_THREAD_DIM) __aicore__ void SimtComputeEdgeDimFour
     uint32_t blockNum, uint32_t m0, uint32_t m1, uint32_t m2, uint32_t s0, uint32_t s1, uint32_t s2)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint32_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint32_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint32_t dstIdx = idx;
         int32_t inIndex[DIM] = {0};
 
@@ -161,8 +162,8 @@ __simt_vf__ LAUNCH_BOUND(EDGE_THREAD_DIM) __aicore__ void SimtComputeEdgeDimFive
     uint32_t s0, uint32_t s1, uint32_t s2, uint32_t s3)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint32_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint32_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint32_t dstIdx = idx;
         int32_t inIndex[DIM] = {0};
 
@@ -197,8 +198,8 @@ __simt_vf__ LAUNCH_BOUND(EDGE_THREAD_DIM) __aicore__ void SimtComputeEdgeDimSix(
     uint32_t s4)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint32_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint32_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint32_t dstIdx = idx;
         int32_t inIndex[DIM] = {0};
 
@@ -235,8 +236,8 @@ __simt_vf__ LAUNCH_BOUND(EDGE_THREAD_DIM) __aicore__ void SimtComputeEdgeDimSeve
     uint32_t s0, uint32_t s1, uint32_t s2, uint32_t s3, uint32_t s4, uint32_t s5)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint32_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint32_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint32_t dstIdx = idx;
         int32_t inIndex[DIM] = {0};
 
@@ -277,8 +278,8 @@ __simt_vf__ LAUNCH_BOUND(EDGE_THREAD_DIM) __aicore__ void SimtComputeEdgeDimEigh
     uint32_t s0, uint32_t s1, uint32_t s2, uint32_t s3, uint32_t s4, uint32_t s5, uint32_t s6)
 {
     GET_TILING_DATA_PTR_WITH_STRUCT(PadACTilingData, tD, tiling);
-    for (uint32_t idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (uint32_t idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         uint32_t dstIdx = idx;
         int32_t inIndex[DIM] = {0};
 
@@ -326,8 +327,8 @@ __aicore__ inline void PadEdgeSimt<T>::Process(GM_ADDR tiling)
     uint32_t mDimNum = mTD_->dimNum;
 
     if (mDimNum == 1) {
-        Simt::VF_CALL<SimtComputeEdgeDimOne<T>>(
-            Simt::Dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeEdgeDimOne<T>>(
+            dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
             mTD_->outShape[0], mBlockIdx_, blockNum, mTD_->inShape[0], mTD_->leftPad[0]);
         return;
     }
@@ -345,36 +346,36 @@ __aicore__ inline void PadEdgeSimt<T>::Process(GM_ADDR tiling)
     }
 
     if (mDimNum == 2) {
-        Simt::VF_CALL<SimtComputeEdgeDimTwo<T, 2>>(
-            Simt::Dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeEdgeDimTwo<T, 2>>(
+            dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
             outputSize, mBlockIdx_, blockNum, mTD_->outStride[0], mTD_->inShape[0], mTD_->inShape[1], m[0],
             s[0], mTD_->leftPad[0], mTD_->leftPad[1]);
     } else if (mDimNum == 3) {
-        Simt::VF_CALL<SimtComputeEdgeDimThree<T, 3>>(
-            Simt::Dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeEdgeDimThree<T, 3>>(
+            dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
             outputSize, mBlockIdx_, blockNum, mTD_->outStride[0], mTD_->outStride[1], mTD_->inShape[0],
             mTD_->inShape[1], mTD_->inShape[2], m[0], m[1], s[0], s[1], mTD_->leftPad[0], mTD_->leftPad[1],
             mTD_->leftPad[2]);
     } else if (mDimNum == 4) {
-        Simt::VF_CALL<SimtComputeEdgeDimFour<T, 4>>(
-            Simt::Dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeEdgeDimFour<T, 4>>(
+            dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
             tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2], s[0], s[1], s[2]);
     } else if (mDimNum == 5) {
-        Simt::VF_CALL<SimtComputeEdgeDimFive<T, 5>>(
-            Simt::Dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeEdgeDimFive<T, 5>>(
+            dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
             tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2], m[3], s[0], s[1], s[2], s[3]);
     } else if (mDimNum == 6) {
-        Simt::VF_CALL<SimtComputeEdgeDimSix<T, 6>>(
-            Simt::Dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeEdgeDimSix<T, 6>>(
+            dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
             tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2], m[3], m[4], s[0], s[1], s[2], s[3], s[4]);
     } else if (mDimNum == 7) {
-        Simt::VF_CALL<SimtComputeEdgeDimSeven<T, 7>>(
-            Simt::Dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeEdgeDimSeven<T, 7>>(
+            dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
             tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2], m[3], m[4], m[5],
             s[0], s[1], s[2], s[3], s[4], s[5]);
     } else if (mDimNum == 8) {
-        Simt::VF_CALL<SimtComputeEdgeDimEight<T, 8>>(
-            Simt::Dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeEdgeDimEight<T, 8>>(
+            dim3(EDGE_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()), (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()),
             tiling, outputSize, mBlockIdx_, blockNum, m[0], m[1], m[2], m[3],
             m[4], m[5], m[6], s[0], s[1], s[2], s[3], s[4], s[5], s[6]);
     }

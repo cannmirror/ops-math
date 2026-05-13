@@ -19,6 +19,7 @@
 #include <type_traits>
 #include "kernel_operator.h"
 #include "diag_struct.h"
+#include "simt_api/asc_simt.h"
 
 using namespace AscendC;
 
@@ -62,7 +63,7 @@ template <typename T>
 __simt_vf__ __aicore__ LAUNCH_BOUND(HALF_THREAD_NUM_LAUNCH_BOUND) void DiagSIMTCompute(
     uint64_t nSize, uint32_t xBaseIdx, uint32_t curCoreElements, __gm__ T* x, __gm__ volatile T* y)
 {
-    for (uint32_t idx = Simt::GetThreadIdx(); idx < curCoreElements; idx += Simt::GetThreadNum()) {
+    for (uint32_t idx = threadIdx.x; idx < curCoreElements; idx += blockDim.x) {
         uint32_t xIdx = xBaseIdx + idx;
         uint64_t yIdx = static_cast<uint64_t>(xIdx) * (nSize + 1);
         y[yIdx] = x[xIdx];
@@ -120,8 +121,8 @@ __aicore__ inline void DiagSIMT<T>::Process()
     event_t eventId = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE3_V));
     SetFlag<HardEvent::MTE3_V>(eventId);
     WaitFlag<HardEvent::MTE3_V>(eventId);
-    Simt::VF_CALL<DiagSIMTCompute<T>>(
-        Simt::Dim3(threadNum_), nSize_, xBlockOffset, curCoreElements_,
+    asc_vf_call<DiagSIMTCompute<T>>(
+        dim3(threadNum_), nSize_, xBlockOffset, curCoreElements_,
         (__gm__ T*)(xGm_.GetPhyAddr()), (__gm__ volatile T*)(yGm_.GetPhyAddr()));
 }
 

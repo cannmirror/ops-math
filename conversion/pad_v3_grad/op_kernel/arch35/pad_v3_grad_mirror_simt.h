@@ -18,6 +18,7 @@
 
 #include "kernel_operator.h"
 #include "op_kernel/platform_util.h"
+#include "simt_api/asc_simt.h"
 #include "simt_api/asc_fp16.h"
 #include "simt_api/asc_bf16.h"
 #include "pad_v3_grad_struct.h"
@@ -102,8 +103,8 @@ __simt_vf__ LAUNCH_BOUND(MIRROR_EIGHTH_THREAD_DIM) __aicore__ void SimtComputeMi
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         GmOffsetType yIdx = idx;
@@ -145,8 +146,8 @@ __simt_vf__ LAUNCH_BOUND(MIRROR_EIGHTH_THREAD_DIM) __aicore__ void SimtComputeMi
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         uint64_t yIdx = idx;
@@ -195,8 +196,8 @@ __simt_vf__ LAUNCH_BOUND(MIRROR_EIGHTH_THREAD_DIM) __aicore__ void SimtComputeMi
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         GmOffsetType yIdx = idx;
@@ -251,8 +252,8 @@ __simt_vf__ LAUNCH_BOUND(MIRROR_EIGHTH_THREAD_DIM) __aicore__ void SimtComputeMi
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         GmOffsetType yIdx = idx;
@@ -313,8 +314,8 @@ __simt_vf__ LAUNCH_BOUND(MIRROR_EIGHTH_THREAD_DIM) __aicore__ void SimtComputeMi
     __ubuf__ U* inShapes, __ubuf__ U* outShapes, __ubuf__ U* inStrides, __ubuf__ U* outStrides, __ubuf__ U* leftPads,
     __ubuf__ U* rightPads, __ubuf__ GmOffsetType* magics, __ubuf__ GmOffsetType* shifts, __ubuf__ U* cutBounds)
 {
-    for (GmOffsetType idx = blockIdx * Simt::GetThreadNum() + Simt::GetThreadIdx(); idx < outputSize;
-         idx += blockNum * Simt::GetThreadNum()) {
+    for (GmOffsetType idx = blockIdx * blockDim.x + threadIdx.x; idx < outputSize;
+         idx += blockNum * blockDim.x) {
         U outIndex[DIM_NUM]{0};
         U inIndex[DIM_NUM]{0};
         GmOffsetType yIdx = idx;
@@ -426,28 +427,28 @@ __aicore__ inline void PadV3GradMirrorSimt<T, KEY>::Process()
     }
 
     if (mTD_->dimNum == 1) {
-        Simt::VF_CALL<SimtComputeMirrorOne<T, 1, U, GmOffsetType, CastType, KEY>>(
-            Simt::Dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeMirrorOne<T, 1, U, GmOffsetType, CastType, KEY>>(
+            dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     } else if (mTD_->dimNum == 2) {
-        Simt::VF_CALL<SimtComputeMirrorTwo<T, 2, U, GmOffsetType, CastType, KEY>>(
-            Simt::Dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeMirrorTwo<T, 2, U, GmOffsetType, CastType, KEY>>(
+            dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     } else if (mTD_->dimNum == 3) {
-        Simt::VF_CALL<SimtComputeMirrorThree<T, 3, U, GmOffsetType, CastType, KEY>>(
-            Simt::Dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeMirrorThree<T, 3, U, GmOffsetType, CastType, KEY>>(
+            dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     } else if (mTD_->dimNum == 4) {
-        Simt::VF_CALL<SimtComputeMirrorFour<T, 4, U, GmOffsetType, CastType, KEY>>(
-            Simt::Dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeMirrorFour<T, 4, U, GmOffsetType, CastType, KEY>>(
+            dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     } else if (mTD_->dimNum == 5) {
-        Simt::VF_CALL<SimtComputeMirrorFive<T, 5, U, GmOffsetType, CastType, KEY>>(
-            Simt::Dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
+        asc_vf_call<SimtComputeMirrorFive<T, 5, U, GmOffsetType, CastType, KEY>>(
+            dim3(MIRROR_EIGHTH_THREAD_DIM), (__gm__ T*)(mInputGM_.GetPhyAddr()),
             (__gm__ volatile T*)(mOutputGM_.GetPhyAddr()), outputSize, mBlockIdx_, blockNum, inShapes, outShapes,
             inStrides, outStrides, leftPads, rightPads, magics, shifts, cutBounds);
     }
