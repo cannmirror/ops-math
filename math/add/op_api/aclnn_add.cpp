@@ -336,7 +336,6 @@ aclnnStatus aclnnAddGetWorkspaceSize(
         return ACLNN_SUCCESS;
     }
 
-    bool isSupportNonContiguous = IsRegBase();
     auto selfWithStride = uniqueExecutor.get()->CreateView(
         self, self->GetViewShape(), self->GetStorageShape(), self->GetViewStrides(), self->GetViewOffset());
     CHECK_RET(selfWithStride != nullptr, ACLNN_ERR_INNER_NULLPTR);
@@ -350,8 +349,7 @@ aclnnStatus aclnnAddGetWorkspaceSize(
     // 判断输入是否符合kernel支持的混合输入类型
     bool isMixDataType = isAddMixDtypeSupport(self, other);
     if (isMixDataType && !(alpha->ToFloat() > 1 || alpha->ToFloat() < 1)) {
-        // 无需调用Cast，直接调用L0带混合数据类型的kernel
-        if (isSupportNonContiguous) {
+        if (l0op::IsAddSupportNonContiguous(self, other)) {
             addOpOut = l0op::Add(selfWithStride, otherWithStride, uniqueExecutor.get());
         } else {
             // 固定写法，将输入self转换成连续的tensor

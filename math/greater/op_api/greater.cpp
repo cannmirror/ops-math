@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 #include "greater.h"
+#include "op_api/broadcast_noncontiguous_util.h"
 #include "opdev/aicpu/aicpu_task.h"
 #include "opdev/make_op_executor.h"
 #include "opdev/op_def.h"
@@ -44,7 +45,6 @@ static const std::initializer_list<op::DataType> REGBASE_DTYPE_SUPPORT_LIST = {
     op::DataType::DT_INT8,  op::DataType::DT_UINT8,  op::DataType::DT_BF16,
     op::DataType::DT_INT64, op::DataType::DT_UINT64, op::DataType::DT_BOOL};
 
-// 根据dtype判断算子是否支持走aicore
 static bool IsAiCoreSupport(const aclTensor* self)
 {
     auto npuArch = op::GetCurrentPlatformInfo().GetCurNpuArch();
@@ -60,10 +60,13 @@ static bool IsAiCoreSupport(const aclTensor* self)
     return CheckType(self->GetDataType(), AICORE_DTYPE_SUPPORT_910_LIST);
 }
 
-// 判断tensor是否支持非连续
 bool IsGreaterSupportNonContiguous(const aclTensor* self) {
-  bool isSupportNonContiguous = IsRegBase();
-  return isSupportNonContiguous && IsAiCoreSupport(self);
+    bool selfNonContiguousSupport = IsBroadcastTemplateNonContiguousSupport(self);
+    bool selfAiCoreSupport = IsAiCoreSupport(self);
+    OP_LOGI(
+        "IsGreaterSupportNonContiguous: selfNonContiguousSupport %d selfAiCoreSupport %d",
+        selfNonContiguousSupport, selfAiCoreSupport);
+    return selfNonContiguousSupport && selfAiCoreSupport;
 }
 
 // AICORE算子kernel

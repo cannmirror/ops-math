@@ -17,6 +17,7 @@
 #include "opdev/op_log.h"
 #include "opdev/shape_utils.h"
 #include "op_api/aclnn_check.h"
+#include "opdev/tensor_view_utils.h"
 
 using namespace op;
 
@@ -42,7 +43,6 @@ static const std::initializer_list<op::DataType> REGBASE_DTYPE_SUPPORT_LIST = {
   op::DataType::DT_UINT8, op::DataType::DT_BF16, op::DataType::DT_INT64,
   op::DataType::DT_UINT64, op::DataType::DT_BOOL};
 
-// 根据芯片类型、dtype判断算子是否支持走aicore
 static inline bool IsAiCoreSupport(const aclTensor *self) {
   auto npuArch = op::GetCurrentPlatformInfo().GetCurNpuArch();
   if (IsRegBase(npuArch)) {
@@ -55,10 +55,58 @@ static inline bool IsAiCoreSupport(const aclTensor *self) {
   return op::CheckType(self->GetDataType(), AICORE_DTYPE_SUPPORT_LIST);
 }
 
-// 判断tensor是否支持非连续
+static bool IsGeTensorSupportNonContiguous(const aclTensor* input)
+{
+    auto viewShape = input->GetViewShape();
+    auto viewStride = input->GetViewStrides();
+    size_t typeSize = op::TypeSize(input->GetDataType());
+    
+    if (typeSize == 0) {
+        OP_LOGI("GeTensor NonContiguous UnSupported. typeSize is 0");
+        return false;
+    }
+    
+    size_t shapeDim = viewShape.GetDimNum();
+    size_t stridesDim = viewStride.size();
+    if (shapeDim != stridesDim) {
+        OP_LOGI("GeTensor NonContiguous UnSupported. shapeDim: %d != stridesDim: %d", shapeDim, stridesDim);
+        return false;
+    }
+    if (shapeDim > 4) {
+        OP_LOGI("GeTensor NonContiguous UnSupported. shapeDim: %d > 4", shapeDim);
+        return false;
+    }
+    if (!IsRegBase()) {
+        OP_LOGI("GeTensor NonContiguous UnSupported. not RegBase");
+        return false;
+    }
+    if (op::IsContiguous(input)) {
+        OP_LOGI("GeTensor NonContiguous Supported. tensor is contiguous");
+        return true;
+    }
+    if (viewStride[stridesDim - 1] != 1) {
+        OP_LOGI("GeTensor NonContiguous UnSupported. stride[-1]: %d != 1", viewStride[stridesDim - 1]);
+        return false;
+    }
+
+    int64_t cacheLineDim = 128 / typeSize;
+    if (viewShape[shapeDim - 1] >= cacheLineDim) {
+        OP_LOGI("GeTensor NonContiguous Supported. large last dim, shape[-1]: %d >= cacheLineDim: %d",
+                viewShape[shapeDim - 1], cacheLineDim);
+        return true;
+    }
+    OP_LOGI("GeTensor NonContiguous UnSupported. shape[-1]: %d < cacheLineDim: %d",
+            viewShape[shapeDim - 1], cacheLineDim);
+    return false;
+}
+
 bool IsGreaterEqualSupportNonContiguous(const aclTensor* self) {
-  bool isSupportNonContiguous = IsRegBase();
-  return isSupportNonContiguous && IsAiCoreSupport(self);
+    bool selfNonContiguousSupport = IsGeTensorSupportNonContiguous(self);
+    bool selfAiCoreSupport = IsAiCoreSupport(self);
+    OP_LOGI(
+        "IsGreaterEqualSupportNonContiguous: selfNonContiguousSupport %d selfAiCoreSupport %d",
+        selfNonContiguousSupport, selfAiCoreSupport);
+    return selfNonContiguousSupport && selfAiCoreSupport;
 }
 
 const aclTensor *GreaterEqual(const aclTensor *self, const aclTensor *other, aclOpExecutor *executor) {

@@ -10,6 +10,7 @@
 
 #include "add.h"
 #include "op_api/aclnn_check.h"
+#include "op_api/broadcast_noncontiguous_util.h"
 #include "opdev/aicpu/aicpu_task.h"
 #include "opdev/make_op_executor.h"
 #include "opdev/op_log.h"
@@ -39,7 +40,7 @@ static const std::initializer_list<DataType> ASCEND610LITE_AICORE_DTYPE_SUPPORT_
 static inline const std::initializer_list<DataType>& GetAiCoreDtypeSupportListBySocVersion()
 {
     auto curArch = GetCurrentPlatformInfo().GetCurNpuArch();
-    OP_LOGI("AddL0", "curArch is %u", static_cast<uint32_t>(curArch));
+    OP_LOGI("curArch is %u", static_cast<uint32_t>(curArch));
     switch (curArch) {
         case NpuArch::DAV_2201:
         case NpuArch::DAV_3510: {
@@ -57,15 +58,22 @@ static inline const std::initializer_list<DataType>& GetAiCoreDtypeSupportListBy
     }
 }
 
-// 根据芯片类型、dtype判断算子是否支持走aicore
 static inline bool IsAiCoreSupport(const aclTensor* self)
 {
     return CheckType(self->GetDataType(), GetAiCoreDtypeSupportListBySocVersion());
 }
 
-bool IsAddSupportNonContiguous(const aclTensor* self, const aclTensor *other) {
-  bool isSupportNonContiguous = IsRegBase();
-  return isSupportNonContiguous && IsAiCoreSupport(self) && IsAiCoreSupport(other);
+bool IsAddSupportNonContiguous(const aclTensor* self, const aclTensor* other)
+{
+    bool selfNonContiguousSupport = IsBroadcastTemplateNonContiguousSupport(self);
+    bool otherNonContiguousSupport = IsBroadcastTemplateNonContiguousSupport(other);
+    bool selfAiCoreSupport = IsAiCoreSupport(self);
+    bool otherAiCoreSupport = IsAiCoreSupport(other);
+    OP_LOGI(
+        "IsAddSupportNonContiguous: selfNonContiguousSupport %d otherNonContiguousSupport %d selfAiCoreSupport %d "
+        "otherAiCoreSupport %d",
+        selfNonContiguousSupport, otherNonContiguousSupport, selfAiCoreSupport, otherAiCoreSupport);
+    return selfNonContiguousSupport && otherNonContiguousSupport && selfAiCoreSupport && otherAiCoreSupport;
 }
 
 // AICORE算子kernel
