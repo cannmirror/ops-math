@@ -21,6 +21,11 @@
 #include "atvoss/util/placeholder.h"
 #include <limits>
 
+#ifdef __CCE_AICORE__
+#include "simt_api/math_functions.h"
+#include "simt_api/asc_simt.h"
+#endif
+
 namespace Expm1Op {
 using namespace Ops::Base;
 const int CAST_MODE_NONE = 0;
@@ -46,36 +51,36 @@ template <typename T>
 __simt_vf__ __aicore__
 LAUNCH_BOUND(THREAD_NUM) inline void Expm1SimtCompute(__ubuf__ T* x, __ubuf__ T* y, const int64_t totalNum)
 {
-    for (int64_t i = Simt::GetThreadIdx(); i < totalNum; i += Simt::GetThreadNum()) {
+    for (int64_t i = threadIdx.x; i < totalNum; i += blockDim.x) {
         float f1 = x[i];
-        float f0 = Simt::Expm1(f1);
+        float f0 = expm1f(f1);
         float f2 = f1 * INV_LN2_APPROX;
-        float f3 = Simt::Round(f2);
-        float f4 = Simt::Abs(f1);
+        float f3 = roundf(f2);
+        float f4 = fabsf(f1);
         bool p1 = f4 < LN2_HALF_APPROX;
         float f5 = p1 ? 0.0f : f3;
         float f6 = -f5;
         float f7 = LN2_APPROX;
-        float f8 = Simt::Fma(f6, f7, f1);
+        float f8 = fmaf(f6, f7, f1);
         float f9 = ONE_MINUS_LN2_APPROX;
-        float f10 = Simt::Fma(f6, f9, f8);
+        float f10 = fmaf(f6, f9, f8);
         bool p2 = f5 == FLOAT_128;
         float f11 = f5 + FLOAT_NEG_ONE;
         float f12 = p2 ? f11 : f5;
         float f13 = C5;
         float f14 = C4;
-        float f15 = Simt::Fma(f14, f10, f13);
+        float f15 = fmaf(f14, f10, f13);
         float f16 = C3;
-        float f17 = Simt::Fma(f15, f10, f16);
+        float f17 = fmaf(f15, f10, f16);
         float f18 = C2;
-        float f19 = Simt::Fma(f17, f10, f18);
+        float f19 = fmaf(f17, f10, f18);
         float f20 = C1;
-        float f21 = Simt::Fma(f19, f10, f20);
+        float f21 = fmaf(f19, f10, f20);
         float f22 = f10 * f21;
-        float f23 = Simt::Fma(f22, f10, f10);
-        float f24 = Simt::Exp2(f12);
+        float f23 = fmaf(f22, f10, f10);
+        float f24 = exp2f(f12);
         float f25 = f24 + FLOAT_NEG_ONE;
-        float f26 = Simt::Fma(f23, f24, f25);
+        float f26 = fmaf(f23, f24, f25);
         float f27 = f26 + f26;
         float f28 = p2 ? f27 : f26;
         bool p3 = f12 > FLOAT_128;
@@ -85,7 +90,7 @@ LAUNCH_BOUND(THREAD_NUM) inline void Expm1SimtCompute(__ubuf__ T* x, __ubuf__ T*
         bool p5 = f1 == 0.0f;
         float f31 = f1 + f1;
         float f32 = p5 ? f31 : f30;
-        y[i] = Simt::Abs(x[i]) > FLOAT_2 ? f0 : f32;
+        y[i] = fabsf(x[i]) > FLOAT_2 ? f0 : f32;
     }
 }
 #endif
@@ -97,7 +102,7 @@ struct Expm1Custom : public Vec::ElemwiseUnaryOP<T, T> {
 #ifdef __CCE_AICORE__
         __ubuf__ T* srcAddr = (__ubuf__ T*)src.GetPhyAddr();
         __ubuf__ T* dstAddr = (__ubuf__ T*)dst.GetPhyAddr();
-        Simt::VF_CALL<Expm1SimtCompute<T>>(Simt::Dim3(THREAD_NUM), srcAddr, dstAddr, count);
+        asc_vf_call<Expm1SimtCompute<T>>(dim3(THREAD_NUM), srcAddr, dstAddr, count);
 #endif
     }
 };
