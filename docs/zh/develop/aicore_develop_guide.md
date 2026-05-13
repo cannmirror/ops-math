@@ -48,26 +48,91 @@ bash build.sh --genop=${op_class}/${op_name}
 Create the initial directory for ${op_name} under ${op_class} success
 ```
 
-创建完成后，目录结构如下所示：
+创建完成后，标准算子的目录结构如下所示：
 
 ```text
 ${op_name}                              # 替换为实际算子名的小写下划线形式
 ├── examples                            # 算子调用示例
 │   ├── test_aclnn_${op_name}.cpp       # 算子aclnn调用示例
 ├── op_graph                            # 算子图模式
-│   ├── {op_name}_graph_infer.cpp       # InferDtepy实现，实现算子dtype推导，在运行时推导输出dtype
+│   ├── {op_name}_graph_infer.cpp       # InferDtype实现，实现算子dtype推导，在运行时推导输出dtype
 │   └── {op_name}_proto.h               # 实现算子图模式的原型
 ├── op_host                             # Host侧实现
 │   ├── ${op_name}_def.cpp              # 算子信息库，定义算子基本信息，如名称、输入输出、数据类型等
 │   ├── ${op_name}_infershape.cpp       # InferShape实现，实现算子形状推导，在运行时推导输出shape
 │   └── ${op_name}_tiling.cpp           # Tiling实现，将张量划分为多个小块，区分数据类型进行并行计算
-└── op_kernel                           # Device侧Kernel实现
-│   ├── ${op_name}_tiling_key.h         # Tilingkey文件，定义Tiling策略的Key，标识不同的划分方式
-│   ├── ${op_name}_tiling_data.h        # Tilingdata文件，存储Tiling策略相关的配置数据，如块大小、并行度
+├── op_kernel                           # Device侧Kernel实现
+│   ├── ${op_name}_tiling_key.h         # TilingKey文件，定义Tiling策略的Key，标识不同的划分方式
+│   ├── ${op_name}_tiling_data.h        # TilingData文件，存储Tiling策略相关的配置数据，如块大小、并行度
 │   ├── ${op_name}.cpp                  # Kernel入口文件，包含主函数和调度逻辑
 │   └── ${op_name}.h                    # Kernel实现文件，定义Kernel头文件，包含函数声明、结构定义、逻辑实现
 └── CMakeLists.txt                      # 算子cmakelist入口
 ```
+
+### 基于atvoss框架的算子目录结构
+
+本项目部分算子（如`abs`、`sin`、`mul`等）基于[atvoss框架](https://gitcode.com/cann/atvoss)开发。atvoss是对同类算子的一次封装，让算子开发更方便。基于atvoss框架的算子，其目录结构与标准算子有所不同，主要体现在以下方面：
+
+1. **TilingKey**：atvoss算子通常复用atvoss框架内置的TilingKey定义，因此不再单独提供`${op_name}_tiling_key.h`文件，而是在Tiling实现中直接定义常量（如`constexpr uint64_t ABS_TILING_KEY_XXX = 101`）。
+2. **TilingData**：atvoss算子使用`${op_name}_struct.h`替代标准算子的`${op_name}_tiling_data.h`，内部继承atvoss框架提供的基础结构体（如`EleBaseTilingData`）。
+3. **DAG描述**：atvoss算子使用`${op_name}_dag.h`描述算子的计算过程（数据流图），这是atvoss框架特有的文件，通过组合框架提供的计算原语（如`Vec::CopyIn`、`Vec::Abs`、`Vec::Cast`等）定义算子的计算逻辑。
+4. **多平台支持**：atvoss算子的Tiling实现和DAG描述按芯片架构分目录存放，如`op_host/arch35/`和`op_kernel/arch35/`。
+
+以`abs`算子为例，基于atvoss框架的目录结构如下：
+
+```text
+abs                                     # 算子名
+├── CMakeLists.txt                      # 算子cmakelist入口
+├── README.md                           # 算子说明文档
+├── docs                                # 算子接口文档
+│   └── aclnnAbs.md                     # aclnn接口文档
+├── examples                            # 算子调用示例
+│   ├── test_aclnn_abs.cpp              # 算子aclnn调用示例
+│   └── test_geir_abs.cpp               # 算子GE IR调用示例
+├── op_api                              # 算子API层
+│   ├── abs.cpp                         # 算子API实现
+│   ├── abs.h                           # 算子API头文件
+│   ├── aclnn_abs.cpp                   # aclnn接口实现
+│   └── aclnn_abs.h                     # aclnn接口头文件
+├── op_graph                            # 算子图模式
+│   └── abs_proto.h                     # 算子图模式原型
+├── op_host                             # Host侧实现
+│   ├── abs_def.cpp                     # 算子信息库
+│   ├── abs_infershape.cpp              # InferShape实现
+│   ├── arch35                          # 按芯片架构分目录
+│   │   ├── abs_tiling_arch35.cpp       # Tiling实现（arch35架构）
+│   │   └── abs_tiling_arch35.h         # Tiling头文件（arch35架构）
+│   └── config                          # 编译配置
+│       └── ascend950
+│           ├── abs_binary.json         # 二进制编译配置
+│           └── abs_simplified_key.ini  # 简化TilingKey配置
+├── op_kernel                           # Device侧Kernel实现
+│   ├── abs_apt.cpp                     # Kernel入口文件（apt表示atvoss port），包含主函数和调度逻辑
+│   ├── abs_struct.h                    # TilingData结构体，替代标准算子的${op_name}_tiling_data.h
+│   └── arch35                          # 按芯片架构分目录
+│       ├── abs_dag.h                   # 算子计算过程描述（DAG），atvoss框架特有
+│       └── abs_complex_dag.h           # 复数类型的DAG描述
+└── tests                               # 测试交付件
+    ├── assets
+    │   └── golden.py                   # 金标数据生成脚本
+    ├── st                              # 系统测试
+    │   └── aclnnAbs
+    │       └── *.json                  # ST测试用例配置
+    └── ut                              # 单元测试
+        ├── op_api
+        │   └── test_aclnn_abs.cpp      # aclnn接口UT
+        └── op_host
+            ├── test_abs_infershape.cpp  # InferShape UT
+            └── arch35
+                └── test_abs_tiling_arch35.cpp  # Tiling UT（arch35架构）
+```
+
+> **说明：**
+>
+> 1. atvoss算子的`${op_name}_struct.h`等价于标准算子的`${op_name}_tiling_data.h`，用于定义TilingData结构体；
+> 2. atvoss算子的`${op_name}_dag.h`是算子计算过程的描述文件，通过DAG（有向无环图）描述数据流，为atvoss框架特有文件；
+> 3. atvoss算子没有独立的`${op_name}_tiling_key.h`文件，TilingKey在Tiling实现中通过常量定义；
+> 4. atvoss框架的详细使用方式请参考[atvoss仓说明](https://gitcode.com/cann/atvoss)。
 
 若`${op_class}`为全新算子分类需额外在`CMakeLists.txt`中添加`add_subdirectory(${op_class})`，否则无法正常编译。
 
@@ -113,12 +178,19 @@ endif()
 
 ### 代码实现
 
-Tiling一共需要三个交付件：```${op_name}_tiling.cpp``` ```${op_name}_tiling_key.h``` ```${op_name}_tiling_data.h```
+**标准算子**的Tiling一共需要三个交付件：```${op_name}_tiling.cpp``` ```${op_name}_tiling_key.h``` ```${op_name}_tiling_data.h```
+
 > 说明：
 >
 > 1. `${op_name}_tiling.cpp`放在`${op_name}/op_host`目录下；
 > 2. `${op_name}_tiling_key.h`和`${op_name}_tiling_data.h`放在`${op_name}/op_kernel`目录下；
-> 3. 如果`${op_name}_tiling.cpp`中需要引用`${op_name}_tiling_data.h`，请使用相对路径的方式，例如：`#incldue "../op_kernel/${op_name}_tiling_data.h"`。
+> 3. 如果`${op_name}_tiling.cpp`中需要引用`${op_name}_tiling_data.h`，请使用相对路径的方式，例如：`#include "../op_kernel/${op_name}_tiling_data.h"`。
+
+> **atvoss算子**的Tiling交付件与标准算子有所不同，通常包含：
+>
+> 1. `${op_name}_tiling_arch{xx}.cpp`和`${op_name}_tiling_arch{xx}.h`：放在`${op_name}/op_host/arch{xx}`目录下，按芯片架构分别实现Tiling逻辑；
+> 2. `${op_name}_struct.h`：放在`${op_name}/op_kernel`目录下，定义TilingData结构体（等价于标准算子的`${op_name}_tiling_data.h`），内部继承atvoss框架提供的基础结构体；
+> 3. 无独立的`${op_name}_tiling_key.h`文件，TilingKey在Tiling实现中通过常量定义。
 
 **交付件1：${op_name}_tiling.cpp**
 
@@ -254,11 +326,17 @@ graph LR
 
 ### 代码实现
 
-Kernel一共需要两个交付件：```${op_name}.cpp``` ```${op_name}.h```
+**标准算子**的Kernel一共需要两个交付件：```${op_name}.cpp``` ```${op_name}.h```
 > 说明：
 >
 > 1. `${op_name}.cpp`为kernel的入口函数只能放在`${op_name}/op_kernel`目录下；
 > 2. `${op_name}.h`文件可以按照不同SoC或模板放在对应目录下，例如：`${op_name}/op_kernel/arch32`、`${op_name}/op_kernel/arch35`或`${op_name}/op_kernel/impl`等目录下；
+
+> **atvoss算子**的Kernel交付件与标准算子有所不同，通常包含：
+>
+> 1. `${op_name}_apt.cpp`：放在`${op_name}/op_kernel`目录下，为Kernel入口文件（apt表示atvoss port），包含核函数定义和调度逻辑，使用atvoss框架提供的`ElementwiseSch`等调度器；
+> 2. `${op_name}_struct.h`：放在`${op_name}/op_kernel`目录下，定义TilingData结构体；
+> 3. `${op_name}_dag.h`：放在`${op_name}/op_kernel/arch{xx}`目录下，通过DAG描述算子的计算过程，使用atvoss框架提供的计算原语（如`Vec::CopyIn`、`Vec::Abs`等）组合定义算子的数据流图。
 
 **交付件1：${op_name}.cpp**
 
