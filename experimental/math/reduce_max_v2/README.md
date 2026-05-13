@@ -1,4 +1,4 @@
-# ReduceMax
+# ReduceMaxV2
 
 ## 产品支持情况
 
