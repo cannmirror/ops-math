@@ -12,30 +12,22 @@
 
 import torch
 from atk.configs.dataset_config import InputDataset
-from atk.configs.results_config import TaskResult
 from atk.tasks.api_execute import register
 from atk.tasks.api_execute.base_api import BaseApi
-from atk.tasks.api_execute.aclnn_base_api import AclnnBaseApi
 
-@register("onnx_inplace_copy")
-class InplaceCopy(BaseApi):
-    def __init__(self, task_result: TaskResult):
-        super(InplaceCopy, self).__init__(task_result)
 
+@register("aclnn_trace")
+class AclnnTraceApi(BaseApi):
     def __call__(self, input_data: InputDataset, with_output: bool = False):
-        """
-        :param input_data:
-        :param with_output:
-        :return:
-        """
-        self_ = input_data.kwargs.get("selfRef")
-        return self_.copy_(input_data.kwargs.get("src"))
-
-@register("aclnn_inplace_copy")
-class AclnnInplaceCopyapi(AclnnBaseApi):
-    def init_by_input_data(self, input_data: InputDataset):
-        input_args, output_packages = super().init_by_input_data(input_data)
-        input_args.pop()
-        output_packages[:] = [input_args[0]]
-        return input_args, output_packages
-
+        output = None
+        if self.device != "npu":
+            input_dtype = input_data.args[0].dtype
+            if input_dtype == torch.bool:
+                output = torch.trace(input_data.args[0].to(torch.int64))
+            elif input_dtype in [torch.float16, torch.bfloat16]:
+                output = torch.trace(input_data.args[0].to(torch.int64)).to(input_dtype)
+            else:
+                output = torch.trace(input_data.args[0])
+        else:
+            output = torch.trace(input_data.args[0])
+        return output

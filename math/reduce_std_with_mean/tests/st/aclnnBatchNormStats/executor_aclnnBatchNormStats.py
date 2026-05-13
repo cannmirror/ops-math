@@ -15,27 +15,19 @@ from atk.configs.dataset_config import InputDataset
 from atk.configs.results_config import TaskResult
 from atk.tasks.api_execute import register
 from atk.tasks.api_execute.base_api import BaseApi
-from atk.tasks.api_execute.aclnn_base_api import AclnnBaseApi
+from atk.tasks.dataset.base_dataset import OpsDataset
 
-@register("onnx_inplace_copy")
-class InplaceCopy(BaseApi):
-    def __init__(self, task_result: TaskResult):
-        super(InplaceCopy, self).__init__(task_result)
 
+@register("ascend_method_torch_tensor_batch_norm_stats")
+class MethodTorchTensorAddcdivApi(BaseApi):
     def __call__(self, input_data: InputDataset, with_output: bool = False):
-        """
-        :param input_data:
-        :param with_output:
-        :return:
-        """
-        self_ = input_data.kwargs.get("selfRef")
-        return self_.copy_(input_data.kwargs.get("src"))
 
-@register("aclnn_inplace_copy")
-class AclnnInplaceCopyapi(AclnnBaseApi):
-    def init_by_input_data(self, input_data: InputDataset):
-        input_args, output_packages = super().init_by_input_data(input_data)
-        input_args.pop()
-        output_packages[:] = [input_args[0]]
-        return input_args, output_packages
+        input = input_data.kwargs["input"]
+        length = len(input.shape)
+        dimArray = [x for x in range(length) if x != 1]
+        mean1 = torch.mean(input, dim=dimArray, keepdim=False)
+        mean2 = torch.mean(input, dim=dimArray, keepdim=True)
+        variance = torch.mean((input - mean2) ** 2, dim=dimArray, keepdim=False)
+        inv_std = 1.0 / torch.sqrt(variance + 1e-5)
 
+        return mean1, inv_std

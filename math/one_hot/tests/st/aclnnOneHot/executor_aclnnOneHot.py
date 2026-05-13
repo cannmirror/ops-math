@@ -10,32 +10,28 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
+import random
 import torch
+
 from atk.configs.dataset_config import InputDataset
 from atk.configs.results_config import TaskResult
+
 from atk.tasks.api_execute import register
 from atk.tasks.api_execute.base_api import BaseApi
-from atk.tasks.api_execute.aclnn_base_api import AclnnBaseApi
 
-@register("onnx_inplace_copy")
-class InplaceCopy(BaseApi):
-    def __init__(self, task_result: TaskResult):
-        super(InplaceCopy, self).__init__(task_result)
+
+
+@register("function_aclnnOneHot")
+class OneHotApi(BaseApi):
+
 
     def __call__(self, input_data: InputDataset, with_output: bool = False):
-        """
-        :param input_data:
-        :param with_output:
-        :return:
-        """
-        self_ = input_data.kwargs.get("selfRef")
-        return self_.copy_(input_data.kwargs.get("src"))
+        input_tensor=input_data.kwargs["self"]
+        numClasses=input_data.kwargs["numClasses"]
+        if not input_tensor.is_floating_point():
+            input_tensor =input_tensor.to(torch.int64)
+        
+        input_tensor=torch.clamp(input_tensor,min=0,max=numClasses-1)
 
-@register("aclnn_inplace_copy")
-class AclnnInplaceCopyapi(AclnnBaseApi):
-    def init_by_input_data(self, input_data: InputDataset):
-        input_args, output_packages = super().init_by_input_data(input_data)
-        input_args.pop()
-        output_packages[:] = [input_args[0]]
-        return input_args, output_packages
-
+        output = torch.nn.functional.one_hot(input_tensor,num_classes=numClasses)
+        return output

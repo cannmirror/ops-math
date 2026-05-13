@@ -10,32 +10,47 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
+import numpy as np
+import tensorflow as tf
 import torch
 from atk.configs.dataset_config import InputDataset
 from atk.configs.results_config import TaskResult
 from atk.tasks.api_execute import register
 from atk.tasks.api_execute.base_api import BaseApi
-from atk.tasks.api_execute.aclnn_base_api import AclnnBaseApi
+from atk.tasks.dataset.base_dataset import OpsDataset
 
-@register("onnx_inplace_copy")
-class InplaceCopy(BaseApi):
+
+@register("ascend_method_TF_Slice")
+class MethodTFSliceApi(BaseApi):
     def __init__(self, task_result: TaskResult):
-        super(InplaceCopy, self).__init__(task_result)
+        super(MethodTFSliceApi, self).__init__(task_result)
+        OpsDataset.seed_everything()
+        self.change_flag = None
+
 
     def __call__(self, input_data: InputDataset, with_output: bool = False):
-        """
-        :param input_data:
-        :param with_output:
-        :return:
-        """
-        self_ = input_data.kwargs.get("selfRef")
-        return self_.copy_(input_data.kwargs.get("src"))
 
-@register("aclnn_inplace_copy")
-class AclnnInplaceCopyapi(AclnnBaseApi):
-    def init_by_input_data(self, input_data: InputDataset):
-        input_args, output_packages = super().init_by_input_data(input_data)
-        input_args.pop()
-        output_packages[:] = [input_args[0]]
-        return input_args, output_packages
+        input_tensor = input_data.kwargs["self"]
+        tensor_shape = input_tensor.shape
+        tensor_dtype = input_tensor.dtype
 
+        dim = input_data.kwargs["dim"]
+        start = [0] * len(tensor_shape)
+        end = list(tensor_shape)
+        step = [1] * len(tensor_shape)
+        start[dim] = input_data.kwargs["start"] 
+        end[dim] = input_data.kwargs["end"]
+        step[dim] = input_data.kwargs["step"]
+
+        if self.device == "gpu":
+            device = f"cuda:{self.device_id}"
+        elif self.device == "npu":
+            device = f"{self.device}:{self.device_id}"
+        else:
+            device = "cpu"
+
+        tf_output = tf.strided_slice(input_tensor, begin=start, end=end, strides=step)
+        np_array = tf_output.numpy()
+        output = torch.from_numpy(np_array)
+
+        return output

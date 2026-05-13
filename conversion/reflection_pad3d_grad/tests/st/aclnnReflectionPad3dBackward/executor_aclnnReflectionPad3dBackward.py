@@ -9,33 +9,18 @@
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
-
 import torch
 from atk.configs.dataset_config import InputDataset
 from atk.configs.results_config import TaskResult
 from atk.tasks.api_execute import register
 from atk.tasks.api_execute.base_api import BaseApi
-from atk.tasks.api_execute.aclnn_base_api import AclnnBaseApi
 
-@register("onnx_inplace_copy")
-class InplaceCopy(BaseApi):
-    def __init__(self, task_result: TaskResult):
-        super(InplaceCopy, self).__init__(task_result)
 
+@register("aclnn_reflection_pad3d_backward")
+class Pad3dBackward(BaseApi):
     def __call__(self, input_data: InputDataset, with_output: bool = False):
-        """
-        :param input_data:
-        :param with_output:
-        :return:
-        """
-        self_ = input_data.kwargs.get("selfRef")
-        return self_.copy_(input_data.kwargs.get("src"))
-
-@register("aclnn_inplace_copy")
-class AclnnInplaceCopyapi(AclnnBaseApi):
-    def init_by_input_data(self, input_data: InputDataset):
-        input_args, output_packages = super().init_by_input_data(input_data)
-        input_args.pop()
-        output_packages[:] = [input_args[0]]
-        return input_args, output_packages
-
+        gradOutput = input_data.kwargs["gradOutput"]
+        input_self = input_data.kwargs["self"]
+        padding = input_data.kwargs["padding"]
+        output = torch.ops.aten.reflection_pad3d_backward(gradOutput, input_self, padding)
+        return output

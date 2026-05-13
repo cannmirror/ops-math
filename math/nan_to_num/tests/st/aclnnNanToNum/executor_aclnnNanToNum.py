@@ -10,32 +10,35 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
+import numpy as np
 import torch
 from atk.configs.dataset_config import InputDataset
 from atk.configs.results_config import TaskResult
 from atk.tasks.api_execute import register
 from atk.tasks.api_execute.base_api import BaseApi
+from atk.tasks.dataset.base_dataset import OpsDataset
+from atk.tasks.backends.lib_interface.acl_wrapper import AclFormat
 from atk.tasks.api_execute.aclnn_base_api import AclnnBaseApi
+from atk.tasks.backends.lib_interface.acl_wrapper import TensorPtr
 
-@register("onnx_inplace_copy")
-class InplaceCopy(BaseApi):
-    def __init__(self, task_result: TaskResult):
-        super(InplaceCopy, self).__init__(task_result)
 
+@register("function_aclnn_nan_to_num")
+class FunctionApi(BaseApi):
     def __call__(self, input_data: InputDataset, with_output: bool = False):
-        """
-        :param input_data:
-        :param with_output:
-        :return:
-        """
-        self_ = input_data.kwargs.get("selfRef")
-        return self_.copy_(input_data.kwargs.get("src"))
+        if self.device == "cpu":
+            output = torch.nan_to_num(input_data.kwargs["self"], input_data.kwargs["nan"], input_data.kwargs["posinf"], input_data.kwargs["neginf"])
+        return output
 
-@register("aclnn_inplace_copy")
-class AclnnInplaceCopyapi(AclnnBaseApi):
-    def init_by_input_data(self, input_data: InputDataset):
-        input_args, output_packages = super().init_by_input_data(input_data)
-        input_args.pop()
-        output_packages[:] = [input_args[0]]
-        return input_args, output_packages
 
+@register("aclnn_nan_to_num")
+class exec_nan_to_num(AclnnBaseApi):
+    def get_format(self, input_data:InputDataset, index=None, name=None):
+        if input_data.kwargs["format"] == "NCL":
+            return AclFormat.ACL_FORMAT_NCL
+        if input_data.kwargs["format"] == "NCHW":
+            return AclFormat.ACL_FORMAT_NCHW
+        if input_data.kwargs["format"] == "NCDHW":
+            return AclFormat.ACL_FORMAT_NCDHW
+        if input_data.kwargs["format"] == "ND":
+            return AclFormat.ACL_FORMAT_ND
+        return AclFormat.ACL_FORMAT_ND

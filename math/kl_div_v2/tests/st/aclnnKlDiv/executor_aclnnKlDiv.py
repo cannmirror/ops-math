@@ -11,31 +11,30 @@
 # ----------------------------------------------------------------------------
 
 import torch
+from torch.nn import functional as F
+
 from atk.configs.dataset_config import InputDataset
 from atk.configs.results_config import TaskResult
 from atk.tasks.api_execute import register
 from atk.tasks.api_execute.base_api import BaseApi
-from atk.tasks.api_execute.aclnn_base_api import AclnnBaseApi
+from atk.tasks.dataset.base_dataset import OpsDataset
 
-@register("onnx_inplace_copy")
-class InplaceCopy(BaseApi):
-    def __init__(self, task_result: TaskResult):
-        super(InplaceCopy, self).__init__(task_result)
 
+@register("function_aclnnKlDiv")
+class aclnnKlDivExecutor(BaseApi):
     def __call__(self, input_data: InputDataset, with_output: bool = False):
-        """
-        :param input_data:
-        :param with_output:
-        :return:
-        """
-        self_ = input_data.kwargs.get("selfRef")
-        return self_.copy_(input_data.kwargs.get("src"))
+        reduction_map = {
+            0: "none",
+            1: "batchmean",
+            2: "sum"
+        }
 
-@register("aclnn_inplace_copy")
-class AclnnInplaceCopyapi(AclnnBaseApi):
-    def init_by_input_data(self, input_data: InputDataset):
-        input_args, output_packages = super().init_by_input_data(input_data)
-        input_args.pop()
-        output_packages[:] = [input_args[0]]
-        return input_args, output_packages
+        input = input_data.kwargs['self']
+        target = input_data.kwargs['target']
+        log_target = input_data.kwargs['log_target']
+        reduction = reduction_map[input_data.kwargs['reduction']]
+        output = None
 
+        output = F.kl_div(input, target, reduction=reduction, log_target=log_target)
+            
+        return output

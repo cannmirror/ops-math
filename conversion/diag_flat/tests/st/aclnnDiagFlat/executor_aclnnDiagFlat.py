@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# -- coding: utf-8 --
 # ----------------------------------------------------------------------------
 # Copyright (c) 2025 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
@@ -15,27 +15,29 @@ from atk.configs.dataset_config import InputDataset
 from atk.configs.results_config import TaskResult
 from atk.tasks.api_execute import register
 from atk.tasks.api_execute.base_api import BaseApi
-from atk.tasks.api_execute.aclnn_base_api import AclnnBaseApi
+from atk.tasks.dataset.base_dataset import OpsDataset
 
-@register("onnx_inplace_copy")
-class InplaceCopy(BaseApi):
+
+@register("ascend_method_torch_diag")
+class MethodTorchDiagApi(BaseApi):
     def __init__(self, task_result: TaskResult):
-        super(InplaceCopy, self).__init__(task_result)
+        super(MethodTorchDiagApi, self).__init__(task_result)
+        OpsDataset.seed_everything()
+        self.change_flag = None
+
 
     def __call__(self, input_data: InputDataset, with_output: bool = False):
-        """
-        :param input_data:
-        :param with_output:
-        :return:
-        """
-        self_ = input_data.kwargs.get("selfRef")
-        return self_.copy_(input_data.kwargs.get("src"))
 
-@register("aclnn_inplace_copy")
-class AclnnInplaceCopyapi(AclnnBaseApi):
-    def init_by_input_data(self, input_data: InputDataset):
-        input_args, output_packages = super().init_by_input_data(input_data)
-        input_args.pop()
-        output_packages[:] = [input_args[0]]
-        return input_args, output_packages
+        input_tensor = input_data.kwargs["self"]
+        diagonal = input_data.kwargs["diagonal"]
 
+        if self.device == "gpu":
+            device = f"cuda:{self.device_id}"
+        elif self.device == "npu":
+            device = f"{self.device}:{self.device_id}"
+        else:
+            device = "cpu"
+
+        output = torch.diag(input_tensor.to(device), diagonal)
+
+        return output
