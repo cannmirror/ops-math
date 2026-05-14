@@ -28,54 +28,54 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__
     uint32_t ubDim2Stride, uint32_t ubDim1Stride, __ubuf__ uint32_t* ParamDim7MagicUb,
     __ubuf__ uint32_t* ParamDim7ShiftUb, __ubuf__ uint32_t* ParamDim8SrcStrideUb, __ubuf__ U* ParamDim8DstStrideUb)
 {
-    for (uint32_t i = Simt::GetThreadIdx(); i < batchSize; i += Simt::GetThreadNum()) {
+    for (uint32_t i = threadIdx.x; i < batchSize; i += blockDim.x) {
         uint32_t idx = i;
         uint32_t srcIndex = 0;
         U dstIndex = 0;
 
-        uint32_t t7 = Simt::MulHi(idx, ParamDim7MagicUb[DIM0]);
+        uint32_t t7 = __umulhi(idx, ParamDim7MagicUb[DIM0]);
         t7 = t7 + idx;
         uint32_t dim7Index = t7 >> ParamDim7ShiftUb[DIM0];
         uint32_t newIdx7 = idx - dim7Index * ubDim7Stride;
         srcIndex += (dim7Index * ParamDim8SrcStrideUb[DIM7]);
         dstIndex += (dim7Index * ParamDim8DstStrideUb[DIM7]);
 
-        uint32_t t6 = Simt::MulHi(newIdx7, ParamDim7MagicUb[DIM1]);
+        uint32_t t6 = __umulhi(newIdx7, ParamDim7MagicUb[DIM1]);
         t6 = t6 + newIdx7;
         uint32_t dim6Index = t6 >> ParamDim7ShiftUb[DIM1];
         uint32_t newIdx6 = newIdx7 - dim6Index * ubDim6Stride;
         srcIndex += (dim6Index * ParamDim8SrcStrideUb[DIM6]);
         dstIndex += (dim6Index * ParamDim8DstStrideUb[DIM6]);
 
-        uint32_t t5 = Simt::MulHi(newIdx6, ParamDim7MagicUb[DIM2]);
+        uint32_t t5 = __umulhi(newIdx6, ParamDim7MagicUb[DIM2]);
         t5 = t5 + newIdx6;
         uint32_t dim5Index = t5 >> ParamDim7ShiftUb[DIM2];
         uint32_t newIdx5 = newIdx6 - dim5Index * ubDim5Stride;
         srcIndex += (dim5Index * ParamDim8SrcStrideUb[DIM5]);
         dstIndex += (dim5Index * ParamDim8DstStrideUb[DIM5]);
 
-        uint32_t t4 = Simt::MulHi(newIdx5, ParamDim7MagicUb[DIM3]);
+        uint32_t t4 = __umulhi(newIdx5, ParamDim7MagicUb[DIM3]);
         t4 = t4 + newIdx5;
         uint32_t dim4Index = t4 >> ParamDim7ShiftUb[DIM3];
         uint32_t newIdx4 = newIdx5 - dim4Index * ubDim4Stride;
         srcIndex += (dim4Index * ParamDim8SrcStrideUb[DIM4]);
         dstIndex += (dim4Index * ParamDim8DstStrideUb[DIM4]);
 
-        uint32_t t3 = Simt::MulHi(newIdx4, ParamDim7MagicUb[DIM4]);
+        uint32_t t3 = __umulhi(newIdx4, ParamDim7MagicUb[DIM4]);
         t3 = t3 + newIdx4;
         uint32_t dim3Index = t3 >> ParamDim7ShiftUb[DIM4];
         uint32_t newIdx3 = newIdx4 - dim3Index * ubDim3Stride;
         srcIndex += (dim3Index * ParamDim8SrcStrideUb[DIM3]);
         dstIndex += (dim3Index * ParamDim8DstStrideUb[DIM3]);
 
-        uint32_t t2 = Simt::MulHi(newIdx3, ParamDim7MagicUb[DIM5]);
+        uint32_t t2 = __umulhi(newIdx3, ParamDim7MagicUb[DIM5]);
         t2 = t2 + newIdx3;
         uint32_t dim2Index = t2 >> ParamDim7ShiftUb[DIM5];
         uint32_t newIdx2 = newIdx3 - dim2Index * ubDim2Stride;
         srcIndex += (dim2Index * ParamDim8SrcStrideUb[DIM2]);
         dstIndex += (dim2Index * ParamDim8DstStrideUb[DIM2]);
 
-        uint32_t t1 = Simt::MulHi(newIdx2, ParamDim7MagicUb[DIM6]);
+        uint32_t t1 = __umulhi(newIdx2, ParamDim7MagicUb[DIM6]);
         t1 = t1 + newIdx2;
         uint32_t dim1Index = t1 >> ParamDim7ShiftUb[DIM6];
         uint32_t dim0Index = newIdx2 - dim1Index * ubDim1Stride;
@@ -245,7 +245,7 @@ __aicore__ inline void ViewCopySimtDim8<T>::ProcessPerLoop(int64_t globalLoopIdx
     __gm__ T* dstAddr = (__gm__ T*)(dstGm_.GetPhyAddr()) + dstOffset;
     if (tilingData_->enableDstInt64 != 0) {
         LocalTensor<uint64_t> ParamDim8DstStrideUb = Dim8paramDstStrideBuf_.Get<uint64_t>();
-        Simt::VF_CALL<CopyUbToGmDim8<T, uint64_t>>(Simt::Dim3(THREAD_DIM), dstAddr, srcAddr, batchSize,
+        asc_vf_call<CopyUbToGmDim8<T, uint64_t>>(dim3(THREAD_DIM), dstAddr, srcAddr, batchSize,
             dim7UbdstStride_, dim6UbdstStride_, dim5UbdstStride_, dim4UbdstStride_, dim3UbdstStride_, dim2UbdstStride_,
             dim1UbdstStride_, (__ubuf__ uint32_t*)(ParamDim7MagicUb.GetPhyAddr()),
             (__ubuf__ uint32_t*)(ParamDim7ShiftUb.GetPhyAddr()),
@@ -253,7 +253,7 @@ __aicore__ inline void ViewCopySimtDim8<T>::ProcessPerLoop(int64_t globalLoopIdx
             (__ubuf__ uint64_t*)(ParamDim8DstStrideUb.GetPhyAddr()));
     } else {
         LocalTensor<uint32_t> ParamDim8DstStrideUb = Dim8paramDstStrideBuf_.Get<uint32_t>();
-        Simt::VF_CALL<CopyUbToGmDim8<T, uint32_t>>(Simt::Dim3(THREAD_DIM), dstAddr, srcAddr, batchSize,
+        asc_vf_call<CopyUbToGmDim8<T, uint32_t>>(dim3(THREAD_DIM), dstAddr, srcAddr, batchSize,
             dim7UbdstStride_, dim6UbdstStride_, dim5UbdstStride_, dim4UbdstStride_, dim3UbdstStride_, dim2UbdstStride_,
             dim1UbdstStride_, (__ubuf__ uint32_t*)(ParamDim7MagicUb.GetPhyAddr()),
             (__ubuf__ uint32_t*)(ParamDim7ShiftUb.GetPhyAddr()),

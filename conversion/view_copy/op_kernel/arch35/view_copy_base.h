@@ -18,6 +18,7 @@
 
 #include "kernel_operator.h"
 #include "op_kernel/platform_util.h"
+#include "simt_api/asc_simt.h"
 
 namespace ViewCopy {
 using namespace AscendC;

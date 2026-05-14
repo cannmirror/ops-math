@@ -29,26 +29,26 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__
     uint32_t magic2, uint32_t shift0, uint32_t shift1, uint32_t shift2, U dstStrideDim0, U dstStrideDim1,
     U dstStrideDim2, U dstStrideDim3)
 {
-    for (uint32_t i = Simt::GetThreadIdx(); i < batchSize; i += Simt::GetThreadNum()) {
+    for (uint32_t i = threadIdx.x; i < batchSize; i += blockDim.x) {
         uint32_t idx = i;
         uint32_t srcIndex = 0;
         U dstIndex = 0;
 
-        uint32_t t3 = Simt::MulHi(idx, magic0);
+        uint32_t t3 = __umulhi(idx, magic0);
         t3 = t3 + idx;
         uint32_t dim3Index = t3 >> shift0;
         uint32_t newIdx3 = idx - dim3Index * ubDim3Stride;
         srcIndex += (dim3Index * srcStrideDim3);
         dstIndex += (dim3Index * dstStrideDim3);
 
-        uint32_t t2 = Simt::MulHi(newIdx3, magic1);
+        uint32_t t2 = __umulhi(newIdx3, magic1);
         t2 = t2 + newIdx3;
         uint32_t dim2Index = t2 >> shift1;
         uint32_t newIdx2 = newIdx3 - dim2Index * ubDim2Stride;
         srcIndex += (dim2Index * srcStrideDim2);
         dstIndex += (dim2Index * dstStrideDim2);
 
-        uint32_t t1 = Simt::MulHi(newIdx2, magic2);
+        uint32_t t1 = __umulhi(newIdx2, magic2);
         t1 = t1 + newIdx2;
         uint32_t dim1Index = t1 >> shift2;
         uint32_t dim0Index = newIdx2 - dim1Index * ubDim1Stride;
@@ -185,7 +185,7 @@ __aicore__ inline void ViewCopySimtDim4<T>::ProcessPerLoop(int64_t globalLoopIdx
         uint64_t dstStrideDim1 = static_cast<uint64_t>(tilingData_->ubDstStride[DIM1_INDEX]);
         uint64_t dstStrideDim2 = static_cast<uint64_t>(tilingData_->ubDstStride[DIM2_INDEX]);
         uint64_t dstStrideDim3 = static_cast<uint64_t>(tilingData_->ubDstStride[DIM3_INDEX]);
-        Simt::VF_CALL<CopyUbToGmDim4<T, uint64_t>>(Simt::Dim3(THREAD_DIM), dstAddr, srcAddr, batchSize, srcStrideDim0,
+        asc_vf_call<CopyUbToGmDim4<T, uint64_t>>(dim3(THREAD_DIM), dstAddr, srcAddr, batchSize, srcStrideDim0,
             srcStrideDim1, srcStrideDim2, srcStrideDim3, dim3UbdstStride_, dim2UbdstStride_, dim1UbdstStride_,
             m_[MS_IDX0], m_[MS_IDX1], m_[MS_IDX2], shift_[MS_IDX0], shift_[MS_IDX1], shift_[MS_IDX2], dstStrideDim0,
             dstStrideDim1, dstStrideDim2, dstStrideDim3);
@@ -194,7 +194,7 @@ __aicore__ inline void ViewCopySimtDim4<T>::ProcessPerLoop(int64_t globalLoopIdx
         uint32_t dstStrideDim1 = static_cast<uint32_t>(tilingData_->ubDstStride[DIM1_INDEX]);
         uint32_t dstStrideDim2 = static_cast<uint32_t>(tilingData_->ubDstStride[DIM2_INDEX]);
         uint32_t dstStrideDim3 = static_cast<uint32_t>(tilingData_->ubDstStride[DIM3_INDEX]);
-        Simt::VF_CALL<CopyUbToGmDim4<T, uint32_t>>(Simt::Dim3(THREAD_DIM), dstAddr, srcAddr, batchSize, srcStrideDim0,
+        asc_vf_call<CopyUbToGmDim4<T, uint32_t>>(dim3(THREAD_DIM), dstAddr, srcAddr, batchSize, srcStrideDim0,
         srcStrideDim1, srcStrideDim2, srcStrideDim3, dim3UbdstStride_, dim2UbdstStride_, dim1UbdstStride_,
             m_[MS_IDX0], m_[MS_IDX1], m_[MS_IDX2], shift_[MS_IDX0], shift_[MS_IDX1], shift_[MS_IDX2],
             dstStrideDim0, dstStrideDim1, dstStrideDim2, dstStrideDim3);

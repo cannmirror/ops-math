@@ -25,7 +25,7 @@ template <typename T, typename U>
 __simt_vf__ LAUNCH_BOUND(THREAD_DIM) __aicore__
     void CopyUbToGmDim1(__gm__ T* dst, __ubuf__ T* src, uint32_t batchSize, uint32_t srcStrideDim0, U dstStrideDim0)
 {
-    for (uint32_t i = Simt::GetThreadIdx(); i < batchSize; i += Simt::GetThreadNum()) {
+    for (uint32_t i = threadIdx.x; i < batchSize; i += blockDim.x) {
         uint32_t srcIndex = (i * srcStrideDim0);
         U dstIndex = (i * dstStrideDim0);
         dst[dstIndex] = src[srcIndex];
@@ -133,11 +133,11 @@ __aicore__ inline void ViewCopySimtDim1<T>::ProcessPerLoop(int64_t globalLoopIdx
     uint32_t srcStrideDim0 = tilingData_->contiguousUbDstStride[DIM0_INDEX];
     if (tilingData_->enableDstInt64 != 0) {
         uint64_t dstStrideDim0 = static_cast<uint64_t>(tilingData_->ubDstStride[DIM0_INDEX]);
-        Simt::VF_CALL<CopyUbToGmDim1<T, uint64_t>>(Simt::Dim3(THREAD_DIM), dstAddr, srcAddr, batchSize,
+        asc_vf_call<CopyUbToGmDim1<T, uint64_t>>(dim3(THREAD_DIM), dstAddr, srcAddr, batchSize,
             srcStrideDim0, dstStrideDim0);
     } else {
         uint32_t dstStrideDim0 = static_cast<uint32_t>(tilingData_->ubDstStride[DIM0_INDEX]);
-        Simt::VF_CALL<CopyUbToGmDim1<T, uint32_t>>(Simt::Dim3(THREAD_DIM), dstAddr, srcAddr, batchSize,
+        asc_vf_call<CopyUbToGmDim1<T, uint32_t>>(dim3(THREAD_DIM), dstAddr, srcAddr, batchSize,
             srcStrideDim0, dstStrideDim0);
     }
     inQueue_.FreeTensor(dstLocal);

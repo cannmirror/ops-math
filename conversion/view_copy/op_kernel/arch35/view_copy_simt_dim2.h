@@ -28,12 +28,12 @@ __simt_vf__ LAUNCH_BOUND(THREAD_DIM_1024) __aicore__
     void CopyUbToGmDim2(__gm__ T* dst, __ubuf__ T* src, uint32_t batchSize, uint32_t srcStrideDim0,
     uint32_t srcStrideDim1, uint32_t ubDim1Stride, uint32_t magic0, uint32_t shift0, U dstStrideDim0, U dstStrideDim1)
 {
-    for (uint32_t i = Simt::GetThreadIdx(); i < batchSize; i += Simt::GetThreadNum()) {
+    for (uint32_t i = threadIdx.x; i < batchSize; i += blockDim.x) {
         uint32_t idx = i;
         uint32_t srcIndex = 0;
         U dstIndex = 0;
 
-        uint32_t t1 = Simt::MulHi(idx, magic0);
+        uint32_t t1 = __umulhi(idx, magic0);
         t1 = t1 + idx;
         uint32_t dim1Index = t1 >> shift0;
         uint32_t dim0Index = idx - dim1Index * ubDim1Stride;
@@ -164,13 +164,13 @@ __aicore__ inline void ViewCopySimtDim2<T>::ProcessPerLoop(int64_t globalLoopIdx
     if (tilingData_->enableDstInt64 != 0) {
         uint64_t dstStrideDim0 = static_cast<uint64_t>(tilingData_->ubDstStride[DIM0_INDEX]);
         uint64_t dstStrideDim1 = static_cast<uint64_t>(tilingData_->ubDstStride[DIM1_INDEX]);
-        Simt::VF_CALL<CopyUbToGmDim2<T, uint64_t>>(Simt::Dim3(THREAD_DIM_1024), dstAddr, srcAddr, batchSize,
+        asc_vf_call<CopyUbToGmDim2<T, uint64_t>>(dim3(THREAD_DIM_1024), dstAddr, srcAddr, batchSize,
             srcStrideDim0, srcStrideDim1, dim1UbdstStride_, m_[MS_IDX0], shift_[MS_IDX0], dstStrideDim0,
             dstStrideDim1);
     } else {
         uint32_t dstStrideDim0 = static_cast<uint32_t>(tilingData_->ubDstStride[DIM0_INDEX]);
         uint32_t dstStrideDim1 = static_cast<uint32_t>(tilingData_->ubDstStride[DIM1_INDEX]);
-        Simt::VF_CALL<CopyUbToGmDim2<T, uint32_t>>(Simt::Dim3(THREAD_DIM_1024), dstAddr, srcAddr, batchSize,
+        asc_vf_call<CopyUbToGmDim2<T, uint32_t>>(dim3(THREAD_DIM_1024), dstAddr, srcAddr, batchSize,
             srcStrideDim0, srcStrideDim1, dim1UbdstStride_, m_[MS_IDX0], shift_[MS_IDX0], dstStrideDim0,
             dstStrideDim1);
     }
