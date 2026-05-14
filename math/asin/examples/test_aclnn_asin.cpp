@@ -11,7 +11,7 @@
 #include <iostream>
 #include <vector>
 #include "acl/acl.h"
-#include "aclnn_asin.h"
+#include "aclnnop/aclnn_asin.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
