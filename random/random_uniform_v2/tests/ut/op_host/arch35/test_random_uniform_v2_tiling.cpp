@@ -59,7 +59,7 @@ TEST_F(RandomUniformV2Tiling, random_uniform_v2_tiling_950_float_001)
         &compileInfo);
     uint64_t expectTilingKey = 100;
     string expectTilingData =
-        "64 256 256 21824 10 0 5 16384 0 0 0 ";
+        "64 256 256 21824 10 0 5 16384 0 0 0 0 ";
     std::vector<size_t> expectWorkspaces = {0};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectTilingData, expectWorkspaces);
 }

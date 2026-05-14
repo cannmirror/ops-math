@@ -31,18 +31,18 @@ OpTilingConfig RandomUniformV2Tiling::BuildOpConfig()
     OpTilingConfig config;
     config.inputCheckRules = {
         // 输入索引:  dtype列表，shapeSize，dim_num
-        {0, {{ge::DT_INT32, ge::DT_INT64}, -1, {1}, nullptr}},  // shape
+        {0, {{ge::DT_INT32, ge::DT_INT64}, -1, {0,1}, nullptr}},  // shape
         {1, {{ge::DT_INT64}, 1, {}, nullptr}},                // offset
     };
 
     config.outputCheckRules = {
         // 输出索引:  dtype列表，shapeSize，dim_num
-        {0, {{ge::DT_FLOAT, ge::DT_FLOAT16, ge::DT_BF16}, -1, {1,2,3,4,5,6,7,8}, nullptr}}
+        {0, {{ge::DT_FLOAT, ge::DT_FLOAT16, ge::DT_BF16}, -1, {0,1,2,3,4,5,6,7,8}, nullptr}}
     };  // y
 
     // 获取output_size：输入0(shape)的shapeSize
     config.getOutputSize = [](gert::TilingContext* ctx, int64_t& shapeSize) -> ge::graphStatus {
-        return RandomUtils::GetAndCheckOutputSize<0,0>(ctx, shapeSize);
+        return RandomUtils::GetAndCheckOutputSize<0,0,false>(ctx, shapeSize);
     };
 
     // 获取key[2]：从attr1(seed) counter[4] attr(seed2)
