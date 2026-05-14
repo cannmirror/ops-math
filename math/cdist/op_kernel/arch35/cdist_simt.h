@@ -108,7 +108,13 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(THREAD_NUM) inline void SimtStridedZero(
         yGmAddr[outputIdx] = 0;
         for(int64_t i = 0; i < M; i++) {
             float absNum = abs(static_cast<float>(x1GmAddr[inputIdx1+i]) - static_cast<float>(x2GmAddr[inputIdx2+i]));
-            float minNum = fminf(ceilf(absNum), static_cast<float>(1));
+            float ceilNum = ceilf(absNum);
+            float minNum;
+            if(isnan(ceilNum)) {
+                minNum = ceilNum;
+            } else {
+                minNum = fminf(ceilNum, static_cast<float>(1));
+            }
             asc_atomic_add(yGmAddr + outputIdx, static_cast<T>(minNum));
         }
     }
