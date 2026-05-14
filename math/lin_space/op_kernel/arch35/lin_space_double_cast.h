@@ -16,10 +16,15 @@
 #ifndef LIN_SPACE_DOUBLE_CAST_H
 #define LIN_SPACE_DOUBLE_CAST_H
 
-#include "lin_space_base.h"
+#include "kernel_operator.h"
+#include "op_kernel/math_util.h"
+#include "op_kernel/platform_util.h"
+#include "op_kernel/load_store_utils.h"
 
 namespace LinSpace {
 using namespace AscendC;
+constexpr int64_t ONCE_ALGN_NUM_INT32 = 8;
+constexpr int64_t DB_BUFFER = 2;
 
 template <typename C, typename S>
 class LinSpaceDoubleCast
