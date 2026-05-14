@@ -51,13 +51,11 @@
 │   │   │   ├── ${op_name}_tiling_${sub_case}.h         # 可选，${sub_case}子场景下Tiling实现用的头文件
 │   │   │   ├── ${op_name}_tiling.cpp                   # 可选，若无该文件表明对应场景下无Tiling实现(将张量划分为多个小块，区分数据类型进行并行计算)
 │   │   │   ├── ${op_name}_tiling.h                     # 可选，Tiling实现用的头文件
-│   │   │   └── CMakeLists.txt                          # Host侧CMakeLists.txt文件
 │   │   ├── op_api                                      # 可选，算子aclnn实现文件目录，若未配置工程自动生成
 │   │   │   ├── aclnn_${op_name}.cpp                    # 算子aclnn接口实现文件
 │   │   │   ├── aclnn_${op_name}.h                      # 算子aclnn接口实现头文件
 │   │   │   ├── ${op_name}.cpp                          # 算子l0接口实现文件
 │   │   │   ├── ${op_name}.h                            # 算子l0接口实现头文件
-│   │   │   └── CMakeLists.txt
 │   │   │── op_kernel                                   # AI Core算子Device侧Kernel实现
 │   │   │   ├── ${sub_case}                             # 可选，${sub_case}子场景使用的目录
 │   │   │   │   ├── ${op_name}_${model}.h               # 算子kernel实现文件，${model}表示用户自定义文件名后缀，通常为Tiling模板名
@@ -110,13 +108,22 @@
 │   │   ├── op_host                                     # 算子信息库、InferShape相关实现
 │   │   ├── op_kernel_aicpu                             # 算子Kernel目录
 │   │   └── tests                                       # 算子测试用例目录
+│   ├── add_example_c_api                               # C API算子示例目录
+│   │   ├── CMakeLists.txt                              # 算子编译配置文件
+│   │   ├── examples                                    # 算子使用示例目录
+│   │   ├── op_graph                                    # 算子构图相关目录
+│   │   ├── op_host                                     # 算子信息库、Tiling、InferShape相关实现目录
+│   │   └── op_kernel                                   # 算子Kernel目录
 │   ├── CMakeLists.txt
 │   ├── fast_kernel_launch_example                       # 轻量级，高性能的算子开发工程模板
 │   │   ├── ascend_ops                                  # 示例算子实现目录
+│   │   ├── cmake                                       # 构建相关cmake脚本目录
 │   │   ├── CMakeLists.txt                              # 算子编译配置文件
+│   │   ├── csrc                                        # C/C++扩展源码目录
 │   │   ├── README.md                                   # 轻量级，高性能的算子开发工程说明资料
 │   │   ├── requirements.txt
-│   │   └── setup.py                                    # 构建脚本
+│   │   ├── setup.py                                    # 构建脚本
+│   │   └── tests                                       # 测试用例目录
 │   └── README.md                                       # 项目示例介绍文档
 ├── scripts                                             # 脚本目录，包含自定义算子、Kernel构建相关配置文件
 ├── tests                                               # 项目级测试目录
@@ -137,5 +144,5 @@
 ├── classify_rule.yaml                                  # 组件划分信息
 ├── install_deps.sh                                     # 项目安装依赖包脚本
 ├── requirements.txt                                    # 项目的第三方依赖包
-└── version.info                                        # 项目版本信息
+└── version.cmake                                       # 项目版本信息
 ```
