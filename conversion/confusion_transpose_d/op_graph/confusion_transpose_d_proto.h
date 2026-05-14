@@ -42,12 +42,12 @@ static const std::vector<ge::DataType> confusionTransposeDDataType = {
 * y: A Tensor with the same type and shape of x. \n
 */
 REG_OP(ConfusionTransposeD)
-    .INPUT(x, TensorType(confusionTransposeDDataType))
-    .OUTPUT(y, TensorType(confusionTransposeDDataType))
-    .ATTR(perm, ListInt)
-    .ATTR(shape, ListInt)
-    .ATTR(transpose_first, bool)
-    .OP_END_FACTORY_REG(confusionTransposeD)
+    .INPUT(x, TensorType({DT_INT8, DT_INT16, DT_INT32, DT_INT64, DT_UINT8, DT_UINT16, DT_UINT32, DT_UINT64, DT_FLOAT16, DT_FLOAT, DT_BF16}))
+    .OUTPUT(y, TensorType({DT_INT8, DT_INT16, DT_INT32, DT_INT64, DT_UINT8, DT_UINT16, DT_UINT32, DT_UINT64, DT_FLOAT16, DT_FLOAT, DT_BF16}))
+    .REQUIRED_ATTR(perm, ListInt)
+    .REQUIRED_ATTR(shape, ListInt)
+    .REQUIRED_ATTR(transpose_first, Bool)
+    .OP_END_FACTORY_REG(ConfusionTransposeD)
 }; // namespace ge
 
 #endif // OPS_OP_PROTO_CONFUSION_TRANSPOSE_D_H_
