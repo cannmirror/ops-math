@@ -662,7 +662,7 @@
     <td>√</td>
     <td>√</td>
     <td>√</td>
-    <td>AI Core</td>
+    <td>AI Core/AI CPU </td>
     <td>该算子对输入的每个元素进行反正弦操作后输出。</td>
   </tr>
   <tr>
@@ -672,7 +672,7 @@
     <td>×</td>
     <td>×</td>
     <td>×</td>
-    <td>AI Core</td>
+    <td>AI Core/AI CPU</td>
     <td>该算子暂无Ascend C代码实现，欢迎开发者补充贡献，贡献方式参考<a href="../../CONTRIBUTING.md">贡献指南</a>。</td>
   </tr>
   <tr>
@@ -1732,7 +1732,7 @@
     <td>√</td>
     <td>√</td>
     <td>√</td>
-    <td>AI Core</td>
+    <td>AI Core/AI CPU</td>
     <td>Tanh的反向计算。</td>
   </tr>
   <tr>
