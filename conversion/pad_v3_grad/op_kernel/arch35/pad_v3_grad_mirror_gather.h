@@ -905,7 +905,7 @@ __aicore__ inline void PadV3GradGather<T,modeName>::GatherAddScatter(__local_mem
         uint16_t loops = (curElements + vlCount - 1) / vlCount;
         for (uint16_t i = 0; i < loops; i++) {
             uint32_t offset = i * vlCount;
-            uint32_t remaining = curElements - offset;
+            uint64_t remaining = curElements - offset;
             uint32_t curCount = static_cast<uint32_t>(Std::min(vlCount, remaining));
 
             AscendC::MicroAPI::MaskReg mask = AscendC::MicroAPI::UpdateMask<PromoteDataT>(curCount);

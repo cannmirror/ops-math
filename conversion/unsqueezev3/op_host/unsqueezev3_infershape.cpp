@@ -16,6 +16,7 @@
 #include "runtime/infer_shape_context.h"
 #include "register/op_impl_registry.h"
 #include "log/log.h"
+#include <algorithm>
 
 using namespace ge;
 namespace ops {

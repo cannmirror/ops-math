@@ -15,6 +15,7 @@
 #include <algorithm>
 #include "log/log.h"
 #include "register/op_impl_registry.h"
+#include <algorithm>
 
 using namespace ge;
 namespace ops {
