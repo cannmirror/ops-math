@@ -701,6 +701,7 @@ __aicore__ inline void Cdist<T>::ProcessNoSplitM(uint32_t bOffset, uint32_t pOff
         offsetX2 = bOffset * R_ * M_ + rOffset * M_;
         offsetY = bOffset * P_ * R_ + pOffset * R_ + rOffset;
         CopyInX2(offsetX2);
+        PipeBarrier<PIPE_ALL>();
         CastXToB32();
         Compute();
         CastY();
