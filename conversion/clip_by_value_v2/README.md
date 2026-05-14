@@ -79,7 +79,7 @@ $$
 | ---------------- | --------------------------- | --------------------------------------------------- |
 | aclnn调用 | [test_aclnn_clamp](./examples/test_aclnn_clamp.cpp) | 通过[aclnnClamp](./docs/aclnnClamp.md)接口方式调用clip_by_value_v2算子。    |
 | aclnn调用 | [test_aclnn_clamp_max](./examples/test_aclnn_clamp_max.cpp) <br> [test_aclnn_inplace_clamp_max](./examples/test_aclnn_inplace_clamp_max.cpp) | 通过[aclnnClampMax&aclnnInplaceClampMax](./docs/aclnnClampMax&aclnnInplaceClampMax.md)接口方式调用clip_by_value_v2算子。    |
-| aclnn调用 | [test_aclnn_clamp_max_tensor](./examples/test_aclnn_clamp_max_tensor.cpp) <br> [test_aclnn_inplace_clamp_max_tensor](./examples/test_aclnn_inplace_clamp_max_tensor.cpp) | 通过[aclnnClampMax&aclnnInplaceClampMax](./docs/aclnnClampMaxTensor&aclnnInplaceClampMaxTensor.md)接口方式调用clip_by_value_v2算子。    |
+| aclnn调用 | [test_aclnn_clamp_max_tensor](./examples/test_aclnn_clamp_max_tensor.cpp) <br> [test_aclnn_inplace_clamp_max_tensor](./examples/test_aclnn_inplace_clamp_max_tensor.cpp) | 通过[aclnnClampMaxTensor&aclnnInplaceClampMaxTensor](./docs/aclnnClampMaxTensor&aclnnInplaceClampMaxTensor.md)接口方式调用clip_by_value_v2算子。    |
 | aclnn调用 | [test_aclnn_clamp_min](./examples/test_aclnn_clamp_min.cpp) | 通过[aclnnClampMin](./docs/aclnnClampMin.md)接口方式调用clip_by_value_v2算子。    |
 | aclnn调用 | [test_aclnn_clamp_min_tensor](./examples/test_aclnn_clamp_min_tensor.cpp) <br> [test_aclnn_inplace_clamp_min_tensor](./examples/test_aclnn_inplace_clamp_min_tensor.cpp) | 通过[aclnnClampMinTensor&aclnnInplaceClampMinTensor](./docs/aclnnClampMinTensor&aclnnInplaceClampMinTensor.md)接口方式调用clip_by_value_v2算子。    |
 | aclnn调用 | [test_aclnn_clamp_tensor](./examples/test_aclnn_clamp_tensor.cpp) | 通过[aclnnClampTensor](./docs/aclnnClampTensor.md)接口方式调用clip_by_value_v2算子。    |
