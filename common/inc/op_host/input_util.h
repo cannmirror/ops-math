@@ -8,6 +8,9 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#ifndef MATH_COMMON_OP_HOST_INPUT_UTIL_H
+#define MATH_COMMON_OP_HOST_INPUT_UTIL_H
+
 #include <tuple>
 #include <array>
 #include "log/log.h"
@@ -320,3 +323,5 @@ static inline ge::graphStatus GetImgDataDimsByNCHWOrder(
     return ge::GRAPH_FAILED;
 }
 } // namespace Ops::Math
+
+#endif

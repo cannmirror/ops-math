@@ -8,6 +8,9 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#ifndef MATH_COMMON_OP_GRAPH_GRAPH_INFER_COMM_FUNCS_H
+#define MATH_COMMON_OP_GRAPH_GRAPH_INFER_COMM_FUNCS_H
+
 #include "log/log.h"
 #include "graph/types.h"
 #include "exe_graph/runtime/infer_datatype_context.h"
@@ -27,3 +30,5 @@ ge::graphStatus InferDataTypeOutputSameAsInput(gert::InferDataTypeContext* conte
     return context->SetOutputDataType(OUTPUT_IDX, context->GetInputDataType(INPUT_IDX));
 }
 } // namespace ops
+
+#endif
