@@ -20,6 +20,7 @@ operator_group_1:
   - add_n
   - addr
   - adjacent_difference
+  - angle_v2
   - arg_max_v2
   - arg_max_with_value
   - arg_min

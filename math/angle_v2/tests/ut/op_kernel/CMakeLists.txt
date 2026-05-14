@@ -25,4 +25,3 @@ if (UT_TEST_ALL OR OP_KERNEL_UT)
     # param4：该算子依赖的所有tiling源码文件
     AddOpTestCase(angle_v2 "ascend910b" "-DDTYPE_X=float" "${angle_v2_tiling_files}")
 endif()
-
