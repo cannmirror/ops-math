@@ -231,7 +231,7 @@ __aicore__ inline void SplitRowAndCol<T, IS_LOWER>::DoCopyVector(NormalBlockInfo
         int64_t tailRows = info.tailRows > 0 ? info.tailRows : 0;
         int64_t midRows = info.rowActual - tailRows - headRows;
         midRows = midRows > 0 ? midRows : 0;
-        uint16_t vfInnerLoops = CeilDiv(static_cast<uint32_t>(info.colActual), regCount_);
+        uint16_t vfInnerLoops = CeilDiv(static_cast<uint32_t>(colInner_), regCount_);
         uint16_t headLoops = headRows * vfInnerLoops;
         uint16_t tailLoops = tailRows * vfInnerLoops;
         uint16_t midRowsU16 = static_cast<uint16_t>(midRows);
