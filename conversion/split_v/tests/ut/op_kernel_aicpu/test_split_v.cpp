@@ -27,7 +27,7 @@ class TEST_SPLITV_UT : public testing::Test {};
 #define CREATE_NODEDEF(shapes, data_types, datas, num_split)                \
   auto node_def = CpuKernelUtils::CpuKernelUtils::CreateNodeDef();          \
   NodeDefBuilder node(node_def.get(), "SplitV", "SplitV");                  \
-  node.Input({"value", data_types[0], shapes[0], datas[0]})                 \
+  node.Input({"x", data_types[0], shapes[0], datas[0]})                 \
       .Input({"size_splits", data_types[1], shapes[1], datas[1]})           \
       .Input({"split_dim", data_types[2], shapes[2], datas[2]})             \
       .Attr("num_split", num_split);                                        \
@@ -147,7 +147,7 @@ TEST_F(TEST_SPLITV_UT, TestSplitV_EMPTY_CASE1) {
 
   auto node_def = CpuKernelUtils::CpuKernelUtils::CreateNodeDef();
   NodeDefBuilder node(node_def.get(), "SplitV", "SplitV");
-  node.Input({"value", DT_DOUBLE, input_shape, input})
+  node.Input({"x", DT_DOUBLE, input_shape, input})
       .Input({"size_splits", DT_INT64, splits_shape, size_split})
       .Input({"split_dim", DT_INT32, {}, &split_dim})
       .Attr("num_split", 2)
@@ -169,7 +169,7 @@ TEST_F(TEST_SPLITV_UT, TestSplitV_EMPTY_CASE2) {
 
   auto node_def = CpuKernelUtils::CpuKernelUtils::CreateNodeDef();
   NodeDefBuilder node(node_def.get(), "SplitV", "SplitV");
-  node.Input({"value", DT_DOUBLE, input_shape, input})
+  node.Input({"x", DT_DOUBLE, input_shape, input})
       .Input({"size_splits", DT_INT64, splits_shape, size_split})
       .Input({"split_dim", DT_INT32, {}, &split_dim})
       .Attr("num_split", 2)

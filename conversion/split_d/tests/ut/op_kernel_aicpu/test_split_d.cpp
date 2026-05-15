@@ -27,7 +27,7 @@ class TEST_SPLITD_UT : public testing::Test {};
 #define CREATE_NODEDEF(shapes, data_types, datas, split_dim, num_split)     \
   auto node_def = CpuKernelUtils::CpuKernelUtils::CreateNodeDef();          \
   NodeDefBuilder node(node_def.get(), "SplitD", "SplitD");                  \
-  node.Input({"value", data_types[0], shapes[0], datas[0]})                 \
+  node.Input({"x", data_types[0], shapes[0], datas[0]})                 \
       .Attr("split_dim", split_dim)                                         \
       .Attr("num_split", num_split);                                        \
   for(int i = 0; i < num_split; i++) {                                      \
