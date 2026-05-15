@@ -215,7 +215,7 @@ def get_op_ut_types(op_name, files, is_experimental):
 
 def make_command(op, uts, soc, cann_3rd_lib_path=None, is_experimental=False):
     """生成单个算子的构建命令"""
-    cmd_parts = ['bash build.sh', '-u', '-j16']
+    cmd_parts = ['bash', 'build.sh', '-u', '-j16']
 
     if is_experimental:
         cmd_parts.append('--experimental')
@@ -231,7 +231,7 @@ def make_command(op, uts, soc, cann_3rd_lib_path=None, is_experimental=False):
     if cann_3rd_lib_path:
         cmd_parts.append(f"--cann_3rd_lib_path={cann_3rd_lib_path}")
 
-    return ' '.join(cmd_parts)
+    return cmd_parts
 
 
 def make_merged_command(merged_ops, ut_type, soc, cann_3rd_lib_path=None, is_experimental=False):
@@ -242,7 +242,7 @@ def make_merged_command(merged_ops, ut_type, soc, cann_3rd_lib_path=None, is_exp
     - opapi/opgraph: 只跑默认 SOC (ascend910b)，所有算子合并为一条命令
     - ophost/opkernel: 按 SOC 分组（有 arch35 变更时跑多个 SOC），同一 SOC 的算子合并
     """
-    cmd_parts = ['bash build.sh', '-u', '-j16']
+    cmd_parts = ['bash', 'build.sh', '-u', '-j16']
 
     if is_experimental:
         cmd_parts.append('--experimental')
@@ -254,7 +254,7 @@ def make_merged_command(merged_ops, ut_type, soc, cann_3rd_lib_path=None, is_exp
     if cann_3rd_lib_path:
         cmd_parts.append(f"--cann_3rd_lib_path={cann_3rd_lib_path}")
 
-    return ' '.join(cmd_parts)
+    return cmd_parts
 
 
 def make_run_example_command(op_name, mode, is_experimental=False):
@@ -269,14 +269,14 @@ def make_run_example_command(op_name, mode, is_experimental=False):
     """
     if is_experimental:
         cmd_parts = [
-            'bash build.sh', '--experimental', '--run_example',
+            'bash', 'build.sh', '--experimental', '--run_example',
             op_name, mode, 'cust', '--vendor_name=experimental'
         ]
     else:
         cmd_parts = [
-            'bash build.sh', '--run_example', op_name, mode, 'cust'
+            'bash', 'build.sh', '--run_example', op_name, mode, 'cust'
         ]
-    return ' '.join(cmd_parts)
+    return cmd_parts
 
 
 def build_ut_commands(filepath, experimental=False, cann_3rd_lib_path=None):
@@ -338,7 +338,15 @@ def build_ut_commands(filepath, experimental=False, cann_3rd_lib_path=None):
         cmd = make_merged_command(merged_ops, ut_type, soc, cann_3rd_lib_path, experimental)
         commands.append(cmd)
 
-    return list(dict.fromkeys(commands))  # 去重保序
+    # 去重保序（基于 tuple 去重，保留 list 类型）
+    seen = set()
+    unique_commands = []
+    for cmd in commands:
+        key = tuple(cmd)
+        if key not in seen:
+            seen.add(key)
+            unique_commands.append(cmd)
+    return unique_commands
 
 
 def check_op_examples(op_name, is_experimental):
@@ -437,7 +445,7 @@ def make_package_command(merged_ops, cann_3rd_lib_path=None, is_experimental=Fal
         cann_3rd_lib_path: 可选的第三方库路径
         is_experimental: 是否为 experimental 算子
     """
-    cmd_parts = ['bash build.sh', '--pkg', '-j16']
+    cmd_parts = ['bash', 'build.sh', '--pkg', '-j16']
 
     if is_experimental:
         cmd_parts.append('--experimental')
@@ -450,7 +458,7 @@ def make_package_command(merged_ops, cann_3rd_lib_path=None, is_experimental=Fal
     if cann_3rd_lib_path:
         cmd_parts.append(f"--cann_3rd_lib_path={cann_3rd_lib_path}")
 
-    return ' '.join(cmd_parts)
+    return cmd_parts
 
 
 def build_package_commands(filepath, experimental=False, cann_3rd_lib_path=None):
@@ -495,7 +503,7 @@ def print_commands(commands):
     """打印生成的命令列表"""
     print(f"生成 {len(commands)} 条命令:", flush=True)
     for cmd in commands:
-        print(f"  {cmd}", flush=True)
+        print(f"  {' '.join(cmd)}", flush=True)
     print(flush=True)
 
 
@@ -510,12 +518,12 @@ def execute_commands(commands, mode='ut'):
         int: 0 表示全部成功，1 表示有命令失败
     """
     for cmd in commands:
-        print(f"执行: {cmd}", flush=True)
-        result = subprocess.run(cmd, shell=True)
+        print(f"执行: {' '.join(cmd)}", flush=True)
+        result = subprocess.run(cmd)
         if result.returncode != 0:
-            print(f"run {mode} fail: {cmd} (返回码: {result.returncode})", flush=True)
+            print(f"run {mode} fail: {' '.join(cmd)} (返回码: {result.returncode})", flush=True)
             return 1
-        print(f"命令成功: {cmd}", flush=True)
+        print(f"命令成功: {' '.join(cmd)}", flush=True)
     return 0
 
 
