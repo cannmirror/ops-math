@@ -21,7 +21,7 @@ SUPPORTED_LONG_OPTS=(
   "pkg" "asan" "valgrind" "make_clean" "static" "build-type=" "no_force" "simulator"
   "ophost" "opapi" "opgraph" "ophost_test" "opapi_test" "opgraph_test" "opkernel_test" "opkernel_aicpu_test"
   "run_example" "genop=" "genop_aicpu=" "experimental" "cann_3rd_lib_path" "mssanitizer" "oom" "onnxplugin" "tfplugin"
-  "dump_cce" "bisheng_flags=" "kernel_template_input=" "module_extension="
+  "dump_cce" "bisheng_flags=" "kernel_template_input=" "module_extension=" "example_name="
 )
 
 in_array() {
@@ -311,7 +311,7 @@ usage() {
       run_example)
         echo "Run examples Options:"
         echo $dotted_line
-        echo "    --run_example op_type  mode[eager:graph] [pkg_mode --vendor_name=name]     Compile and execute the test_aclnn_xxx.cpp/test_geir_xxx.cpp"
+        echo "    --run_example op_type  mode[eager:graph] [pkg_mode --vendor_name=name --example_name=name]     Compile and execute the test_aclnn_xxx.cpp/test_geir_xxx.cpp"
         echo "    --simulator   Enable simulator mode when running aclnn examples"
         echo $dotted_line
         echo "Examples:"
@@ -320,6 +320,7 @@ usage() {
         echo "    bash build.sh --run_example abs eager cust"
         echo "    bash build.sh --run_example abs eager cust --vendor_name=custom"
         echo "    bash build.sh --run_example abs eager --simulator --soc=ascend950"
+        echo "    bash build.sh --run_example abs eager --example_name=abs --soc=ascend950"
         return
         ;;
       genop)
@@ -723,6 +724,7 @@ checkopts() {
   SHOW_HELP=""
   EXAMPLE_NAME=""
   EXAMPLE_MODE=""
+  SINGLE_EXAMPLE=""
   BUILD_TYPE="Release"
   USE_CMD="$*"
   BISHENG_FLAGS=""
@@ -890,6 +892,7 @@ checkopts() {
           ENABLE_UT_EXEC=FALSE
           ;;
         simulator) ENABLE_SIMULATOR=TRUE ;;
+        example_name=*) SINGLE_EXAMPLE=${OPTARG#*=} ;;
         run_example)
           checkopts_run_example "$@"
           ;;
@@ -1361,6 +1364,17 @@ build_example() {
 
   # Process each found file
   for f in $files; do
+    # Filter by --example_name if specified
+    if [[ -n "$SINGLE_EXAMPLE" ]]; then
+      local example=$(basename "$f" .cpp)
+      example=${example#test_aclnn_}
+      example=${example#test_geir_}
+      if [[ "$example" != "$SINGLE_EXAMPLE" ]]; then
+        echo "Skip $f (--example_name=$SINGLE_EXAMPLE specified)"
+        continue
+      fi
+    fi
+
     echo "Start compile and run examples file: $f"
 
     # Compile based on mode
