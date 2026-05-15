@@ -156,6 +156,8 @@ def parse_changed_files(filepath):
     for file_path in files:
         if file_path.endswith('.md'):
             continue
+        if not os.path.exists(file_path):
+            continue
 
         for rule in RULES:
             m = re.search(rule['pattern'], file_path)
