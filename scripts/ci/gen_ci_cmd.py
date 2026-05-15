@@ -540,7 +540,16 @@ def main():
     parser.add_argument('--run_example', choices=['TRUE', 'FALSE'], default='FALSE',
                         help='是否生成 run_example 命令 (TRUE/FALSE) 可选参数 默认FALSE TRUE表示每个算子运行示例')
     parser.add_argument('--cann_3rd_lib_path', help='可选参数 CANN third party lib path')
+    parser.add_argument('--list_ops', action='store_true',
+                        help='仅输出变更涉及的算子名列表(逗号分隔)，不生成命令')
     args = parser.parse_args()
+
+    if args.list_ops:
+        parsed = parse_changed_files(args.file)
+        ops = parsed['exp_ops'] if args.experimental == 'TRUE' else parsed['normal_ops']
+        if ops:
+            print(','.join(sorted(ops)))
+        return
 
     # 根据模式选择不同的命令生成函数
     if args.run_example == 'TRUE':
