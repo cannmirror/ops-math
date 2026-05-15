@@ -35,14 +35,14 @@ TEST_F(BiasAddGradTiling, BiasAddGrad_tiling1)
     gert::TilingContextPara tilingContextPara(
         "BiasAddGrad",
         {
-            {{{1, 1, 4}, {1, 1, 4}}, ge::DT_FLOAT16, ge::FORMAT_ND},
+            {{{1, 1, 4, 2}, {1, 1, 4, 2}}, ge::DT_FLOAT16, ge::FORMAT_ND},
         },
         {
-            {{{1, 1, 4}, {1, 1, 4}}, ge::DT_FLOAT16, ge::FORMAT_ND},
+            {{{1, 1, 4, 2}, {1, 1, 4, 2}}, ge::DT_FLOAT16, ge::FORMAT_ND},
         },
         {gert::TilingContextPara::OpAttr("data_format", Ops::Math::AnyValue::CreateFrom<std::string>("NHWC"))},
         &compileInfo);
-    uint64_t expectTilingKey = 2660;
+    uint64_t expectTilingKey = 5161;
     std::vector<size_t> expectWorkspaces = {16777216};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectWorkspaces);
 }
@@ -53,15 +53,15 @@ TEST_F(BiasAddGradTiling, BiasAddGrad_tiling2)
     gert::TilingContextPara tilingContextPara(
         "BiasAddGrad",
         {
-            {{{1999, 1999, 4}, {1999, 1999, 4}}, ge::DT_FLOAT16, ge::FORMAT_ND},
+            {{{1999, 1999, 4, 2}, {1999, 1999, 4, 2}}, ge::DT_FLOAT16, ge::FORMAT_ND},
         },
         {
-            {{{1999, 1999, 4}, {1999, 1999, 4}}, ge::DT_FLOAT16, ge::FORMAT_ND},
+            {{{1999, 1999, 4, 2}, {1999, 1999, 4, 2}}, ge::DT_FLOAT16, ge::FORMAT_ND},
         },
-        {gert::TilingContextPara::OpAttr("data_format", Ops::Math::AnyValue::CreateFrom<std::string>("NHWC"))},
+        {gert::TilingContextPara::OpAttr("data_format", Ops::Math::AnyValue::CreateFrom<std::string>("NCHW"))},
         &compileInfo);
-    uint64_t expectTilingKey = 3092;
-    std::vector<size_t> expectWorkspaces = {16793600};
+    uint64_t expectTilingKey = 141375;
+    std::vector<size_t> expectWorkspaces = {16777216};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectWorkspaces);
 }
 
@@ -71,14 +71,14 @@ TEST_F(BiasAddGradTiling, BiasAddGrad_tiling3)
     gert::TilingContextPara tilingContextPara(
         "BiasAddGrad",
         {
-            {{{1999, 1999, 4}, {1999, 1999, 4}}, ge::DT_FLOAT16, ge::FORMAT_FRACTAL_Z},
+            {{{1999, 1999, 4, 1}, {1999, 1999, 4, 1}}, ge::DT_FLOAT16, ge::FORMAT_ND},
         },
         {
-            {{{1999, 1999, 4}, {1999, 1999, 4}}, ge::DT_FLOAT16, ge::FORMAT_FRACTAL_Z},
+            {{{1999, 1999, 4, 1}, {1999, 1999, 4, 1}}, ge::DT_FLOAT16, ge::FORMAT_ND},
         },
         {gert::TilingContextPara::OpAttr("data_format", Ops::Math::AnyValue::CreateFrom<std::string>("NHWC"))},
         &compileInfo);
-    uint64_t expectTilingKey = 3092;
+    uint64_t expectTilingKey = 6167;
     std::vector<size_t> expectWorkspaces = {16793600};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectWorkspaces);
 }
@@ -89,14 +89,14 @@ TEST_F(BiasAddGradTiling, BiasAddGrad_tiling4)
     gert::TilingContextPara tilingContextPara(
         "BiasAddGrad",
         {
-            {{{2, 4, 128, 128, 2, 16, 16}, {2, 4, 128, 128, 2, 16, 16}}, ge::DT_FLOAT16, ge::FORMAT_FRACTAL_Z_3D},
+            {{{2, 4, 128, 128}, {2, 4, 128, 128}}, ge::DT_FLOAT16, ge::FORMAT_ND},
         },
         {
-            {{{2, 4, 128, 128, 2, 16, 16}, {2, 4, 128, 128, 2, 16, 16}}, ge::DT_FLOAT16, ge::FORMAT_NHWC},
+            {{{2, 4, 128, 128}, {2, 4, 128, 128}}, ge::DT_FLOAT16, ge::FORMAT_ND},
         },
-        {gert::TilingContextPara::OpAttr("data_format", Ops::Math::AnyValue::CreateFrom<std::string>("NHWC"))},
+        {gert::TilingContextPara::OpAttr("data_format", Ops::Math::AnyValue::CreateFrom<std::string>("NCHW"))},
         &compileInfo);
-    uint64_t expectTilingKey = 3092;
+    uint64_t expectTilingKey = 11839;
     std::vector<size_t> expectWorkspaces = {16793600};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectWorkspaces);
 }

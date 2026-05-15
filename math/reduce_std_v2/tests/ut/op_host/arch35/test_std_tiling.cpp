@@ -47,7 +47,7 @@ TEST_F(ReduceStdV2Tiling, ReduceStdV2_test_tiling_001)
          gert::TilingContextPara::OpAttr("keepdim", Ops::Math::AnyValue::CreateFrom<bool>(true)),
          gert::TilingContextPara::OpAttr("is_mean_out", Ops::Math::AnyValue::CreateFrom<bool>(true))},
         &compileInfo);
-    uint64_t expectTilingKey = 2571;
+    uint64_t expectTilingKey = 5143;
     string expectTilingData =
         "1 64 1 1 1 1 1 64 27648 512 64 952945869 64 10240 0 0 0 0 0 0 0 10240 1 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 8 0 1 "
         "0 4092916413600104448 952945869 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 "

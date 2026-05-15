@@ -35,7 +35,9 @@ protected:
 };
 
 TEST_F(SelectV2Tiling, select_v2_test_0) {
-   Ops::Base::BroadcastCompileInfo compileInfo = {64, 245760};
+   Ops::Base::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
    gert::StorageShape conditionShape = {{16, 1, 4, 4, 8}, {16, 1, 4, 4, 8}};
    gert::StorageShape x1Shape = {{16, 1, 4, 4, 8}, {16, 1, 4, 4, 8}};
    gert::StorageShape x2Shape = {{16, 1, 4, 4, 8}, {16, 1, 4, 4, 8}};
@@ -54,7 +56,9 @@ TEST_F(SelectV2Tiling, select_v2_test_0) {
 }
 
 TEST_F(SelectV2Tiling, select_test_1) {
-   Ops::Base::BroadcastCompileInfo compileInfo = {64, 245760};
+   Ops::Base::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
    gert::StorageShape conditionShape = {{8, 11, 12, 14, 6}, {8, 11, 12, 14, 6}};
    gert::StorageShape x1Shape = {{8, 11, 12, 14, 6}, {8, 11, 12, 14, 6}};
    gert::StorageShape x2Shape = {{8, 11, 12, 14, 6}, {8, 11, 12, 14, 6}};
@@ -73,7 +77,9 @@ TEST_F(SelectV2Tiling, select_test_1) {
 }
  
 TEST_F(SelectV2Tiling, select_test_2) {
-   Ops::Base::BroadcastCompileInfo compileInfo = {64, 245760};
+   Ops::Base::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
    gert::StorageShape conditionShape = {{20, 5, 1, 9, 17, 10, 3}, {20, 5, 1, 9, 17, 10, 3}};
    gert::StorageShape x1Shape = {{20, 5, 1, 9, 17, 10, 3}, {20, 5, 1, 9, 17, 10, 3}};
    gert::StorageShape x2Shape = {{20, 5, 1, 9, 17, 10, 3}, {20, 5, 1, 9, 17, 10, 3}};

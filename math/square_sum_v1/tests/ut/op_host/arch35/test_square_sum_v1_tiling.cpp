@@ -44,7 +44,7 @@ TEST_F(SquareSumV1Tiling, test_SquareSumV1Tiling_0)
         {gert::TilingContextPara::OpAttr("axis", Ops::Math::AnyValue::CreateFrom<std::vector<int64_t>>({1})),
          gert::TilingContextPara::OpAttr("keep_dims", Ops::Math::AnyValue::CreateFrom<bool>(true))},
         &compileInfo);
-    uint64_t expectTilingKey = 2571;
+    uint64_t expectTilingKey = 5143;
     std::vector<size_t> expectWorkspaces = {16777216};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectWorkspaces);
 }
@@ -65,7 +65,7 @@ TEST_F(SquareSumV1Tiling, test_SquareSumV1Tiling_1)
                 "axis", Ops::Math::AnyValue::CreateFrom<std::vector<int64_t>>({0, 1, 2, 3})),
         },
         &compileInfo);
-    uint64_t expectTilingKey = 3083;
+    uint64_t expectTilingKey = 6167;
     std::vector<size_t> expectWorkspaces = {16793600};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectWorkspaces);
 }
@@ -86,7 +86,7 @@ TEST_F(SquareSumV1Tiling, test_SquareSumV1Tiling_2)
                 "axis", Ops::Math::AnyValue::CreateFrom<std::vector<int64_t>>({0, 1, 2, 3})),
         },
         &compileInfo);
-    uint64_t expectTilingKey = 3083;
+    uint64_t expectTilingKey = 6167;
     std::vector<size_t> expectWorkspaces = {16793600};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectWorkspaces);
 }
@@ -106,7 +106,7 @@ TEST_F(SquareSumV1Tiling, test_SquareSumV1Tiling_3)
             gert::TilingContextPara::OpAttr("axis", Ops::Math::AnyValue::CreateFrom<std::vector<int64_t>>({0, 1})),
         },
         &compileInfo);
-    uint64_t expectTilingKey = 5908;
+    uint64_t expectTilingKey = 11817;
     std::vector<size_t> expectWorkspaces = {16842752};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectWorkspaces);
 }

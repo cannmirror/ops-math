@@ -34,7 +34,7 @@ class StatelessRandomNormalV2Tiling : public testing::Test {
 TEST_F(StatelessRandomNormalV2Tiling, stateless_random_normal_v2_test_tiling_1)
 {
     optiling::StatelessRandomNormalV2CompileInfo compileInfo = {40, 196608};
-    vector<uint64_t> keyValue = {1.0};
+    vector<uint64_t> keyValue = {1};
     vector<int64_t> counterValue = {8, 9};
     vector<int64_t> algsetValue = {1};
     gert::TilingContextPara tilingContextPara(
@@ -61,7 +61,7 @@ TEST_F(StatelessRandomNormalV2Tiling, stateless_random_normal_v2_test_tiling_1)
 TEST_F(StatelessRandomNormalV2Tiling, stateless_random_normal_v2_test_tiling_2)
 {
     optiling::StatelessRandomNormalV2CompileInfo compileInfo = {40, 196608};
-    vector<int64_t> keyValue = {1.0};
+    vector<int64_t> keyValue = {1};
     vector<int64_t> counterValue = {8, 9};
     vector<int64_t> algsetValue = {1};
     gert::TilingContextPara tilingContextPara(

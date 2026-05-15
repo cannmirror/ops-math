@@ -29,7 +29,9 @@ class LogicalOrTiling : public testing::Test {
 
 TEST_F(LogicalOrTiling, logical_or_test_0)
 {
-    BroadcastCompileInfo compileInfo = {64, 245760};
+    BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "LogicalOr",
         {
@@ -48,7 +50,9 @@ TEST_F(LogicalOrTiling, logical_or_test_0)
 
 TEST_F(LogicalOrTiling, logical_or_test_1)
 {
-    BroadcastCompileInfo compileInfo = {64, 245760};
+    BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "LogicalOr",
         {

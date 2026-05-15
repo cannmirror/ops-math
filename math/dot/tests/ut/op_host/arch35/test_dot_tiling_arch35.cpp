@@ -36,7 +36,7 @@ TEST_F(DotTiling, dot_test_tiling_001)
          {{{8}, {8}}, ge::DT_FLOAT16, ge::FORMAT_ND},},
         {{{{8}, {8}}, ge::DT_FLOAT16, ge::FORMAT_ND},},
          &compileInfo);
-    uint64_t expectTilingKey = 2571;
+    uint64_t expectTilingKey = 5143;
     string expectTilingData = "1 1 1 1 1 1 1 1 19968 2304 4294967360 1040187392 1 8 0 0 0 0 0 0 0 8 1 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 1 8 0 0 0 0 0 0 0 8 1 0 0 0 0 0 0 0 ";
     std::vector<size_t> expectWorkspaces = {16777216};
     ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectTilingKey, expectTilingData, expectWorkspaces);

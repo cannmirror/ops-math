@@ -37,7 +37,9 @@ protected:
 
 TEST_F(NotEqualTilingTest, not_equal_test_0)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -55,7 +57,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_0)
 
 TEST_F(NotEqualTilingTest, not_equal_test_1)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -73,7 +77,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_1)
 
 TEST_F(NotEqualTilingTest, not_equal_test_2)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -91,7 +97,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_2)
 
 TEST_F(NotEqualTilingTest, not_equal_test_3)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -109,7 +117,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_3)
 
 TEST_F(NotEqualTilingTest, not_equal_test_4)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -127,7 +137,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_4)
 
 TEST_F(NotEqualTilingTest, not_equal_test_5)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -145,7 +157,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_5)
 
 TEST_F(NotEqualTilingTest, not_equal_test_6)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -163,7 +177,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_6)
 
 TEST_F(NotEqualTilingTest, not_equal_test_7)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -181,7 +197,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_7)
 
 TEST_F(NotEqualTilingTest, not_equal_test_8)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -199,7 +217,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_8)
 
 TEST_F(NotEqualTilingTest, not_equal_test_9)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -217,7 +237,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_9)
 
 TEST_F(NotEqualTilingTest, not_equal_test_10)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -235,7 +257,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_10)
 
 TEST_F(NotEqualTilingTest, not_equal_test_11)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -253,7 +277,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_11)
 
 TEST_F(NotEqualTilingTest, not_equal_test_12)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -271,7 +297,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_12)
 
 TEST_F(NotEqualTilingTest, not_equal_test_13)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -289,7 +317,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_13)
 
 TEST_F(NotEqualTilingTest, not_equal_test_14)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -307,7 +337,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_14)
 
 TEST_F(NotEqualTilingTest, not_equal_test_15)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -325,7 +357,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_15)
 
 TEST_F(NotEqualTilingTest, not_equal_test_16)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -343,7 +377,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_16)
 
 TEST_F(NotEqualTilingTest, not_equal_test_17)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -361,7 +397,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_17)
 
 TEST_F(NotEqualTilingTest, not_equal_test_failed_different_dtype)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {
@@ -377,7 +415,9 @@ TEST_F(NotEqualTilingTest, not_equal_test_failed_different_dtype)
 
 TEST_F(NotEqualTilingTest, not_equal_test_failed_invalid_dtype)
 {
-    optiling::BroadcastCompileInfo compileInfo = {64, 245760};
+    optiling::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "NotEqual",
         {

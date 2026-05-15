@@ -71,7 +71,7 @@ TEST_F(ReduceMaxDavidTiling, reduce_max_david_tiling1)
  	    {input, axes},
  	    {y},
  	    &compileInfo);
- 	uint64_t expectedTilingKey = 0;
+ 	uint64_t expectedTilingKey = 1;
  	std::vector<size_t> expectedWorkspaces = { 16777216 };
  	ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectedTilingKey, expectedWorkspaces);
 }
@@ -92,7 +92,7 @@ TEST_F(ReduceMaxDavidTiling, reduce_max_david_tiling2)
  	    {input, axes},
  	    {y},
  	    &compileInfo);
- 	uint64_t expectedTilingKey = 2571;
+ 	uint64_t expectedTilingKey = 5143;
  	std::vector<size_t> expectedWorkspaces = { 16777216 };
  	ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectedTilingKey, expectedWorkspaces);
 }
@@ -113,7 +113,7 @@ TEST_F(ReduceMaxDavidTiling, reduce_max_david_tiling3)
  	    {input, axes},
  	    {y},
  	    &compileInfo);
- 	uint64_t expectedTilingKey = 2571;
+ 	uint64_t expectedTilingKey = 5143;
  	std::vector<size_t> expectedWorkspaces = { 16777216 };
  	ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectedTilingKey, expectedWorkspaces);
 }
@@ -134,7 +134,7 @@ TEST_F(ReduceMaxDavidTiling, reduce_max_david_tiling4)
  	    {input, axes},
  	    {y},
  	    &compileInfo);
- 	uint64_t expectedTilingKey = 5908;
+ 	uint64_t expectedTilingKey = 11817;
  	std::vector<size_t> expectedWorkspaces = { 16859136 };
  	ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectedTilingKey, expectedWorkspaces);
 }
@@ -155,7 +155,7 @@ TEST_F(ReduceMaxDavidTiling, reduce_max_david_tiling5)
  	    {input, axes},
  	    {y},
  	    &compileInfo);
- 	uint64_t expectedTilingKey = 2571;
+ 	uint64_t expectedTilingKey = 5143;
  	std::vector<size_t> expectedWorkspaces = { 16777216 };
  	ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectedTilingKey, expectedWorkspaces);
 }
@@ -176,7 +176,7 @@ TEST_F(ReduceMaxDavidTiling, reduce_max_david_tiling6)
  	    {input, axes},
  	    {y},
  	    &compileInfo);
- 	uint64_t expectedTilingKey = 5908;
+ 	uint64_t expectedTilingKey = 11817;
  	std::vector<size_t> expectedWorkspaces = { 16842752 };
  	ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectedTilingKey, expectedWorkspaces);
 }
@@ -197,7 +197,7 @@ TEST_F(ReduceMaxDavidTiling, reduce_max_david_tiling7)
  	    {input, axes},
  	    {y},
  	    &compileInfo);
- 	uint64_t expectedTilingKey = 3092;
+ 	uint64_t expectedTilingKey = 6185;
  	std::vector<size_t> expectedWorkspaces = { 16793600 };
  	ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectedTilingKey, expectedWorkspaces);
 }
@@ -218,7 +218,7 @@ TEST_F(ReduceMaxDavidTiling, reduce_max_david_tiling8)
  	    {input, axes},
  	    {y},
  	    &compileInfo);
- 	uint64_t expectedTilingKey = 3092;
+ 	uint64_t expectedTilingKey = 6185;
  	std::vector<size_t> expectedWorkspaces = { 16793600 };
  	ExecuteTestCase(tilingContextPara, ge::GRAPH_SUCCESS, expectedTilingKey, expectedWorkspaces);
 }

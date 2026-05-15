@@ -38,7 +38,9 @@ protected:
 
 TEST_F(RealDivTiling, real_div_test_bf16)
 {
-    Ops::Base::BroadcastCompileInfo compileInfo = {64, 245760};
+    Ops::Base::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "RealDiv",
         {
@@ -57,7 +59,9 @@ TEST_F(RealDivTiling, real_div_test_bf16)
 
 TEST_F(RealDivTiling, real_div_test_float16)
 {
-    Ops::Base::BroadcastCompileInfo compileInfo = {64, 245760};
+    Ops::Base::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "RealDiv",
         {
@@ -76,7 +80,9 @@ TEST_F(RealDivTiling, real_div_test_float16)
 
 TEST_F(RealDivTiling, real_div_test_int32)
 {
-    Ops::Base::BroadcastCompileInfo compileInfo = {64, 245760};
+    Ops::Base::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "RealDiv",
         {
@@ -95,7 +101,9 @@ TEST_F(RealDivTiling, real_div_test_int32)
 
 TEST_F(RealDivTiling, real_div_test_float32)
 {
-    Ops::Base::BroadcastCompileInfo compileInfo = {64, 245760};
+    Ops::Base::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "RealDiv",
         {
@@ -114,7 +122,9 @@ TEST_F(RealDivTiling, real_div_test_float32)
 
 TEST_F(RealDivTiling, real_div_test_bool)
 {
-    Ops::Base::BroadcastCompileInfo compileInfo = {64, 245760};
+    Ops::Base::BroadcastCompileInfo compileInfo;
+    compileInfo.coreNum = 64;
+    compileInfo.ubSize = 245760;
     gert::TilingContextPara tilingContextPara(
         "RealDiv",
         {
