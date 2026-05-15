@@ -43,6 +43,7 @@ operator_group_1:
   - cholesky
   - cos
   - cosh
+  - cross
   - cumsum
   - cummin
   - diag

@@ -12,14 +12,21 @@
 #include "opdev/aicpu/aicpu_task.h"
 #include "opdev/make_op_executor.h"
 #include "opdev/op_dfx.h"
+#include "op_api/aclnn_check.h"
 
 using namespace op;
 namespace l0op {
 OP_TYPE_REGISTER(Cross);
 OP_TYPE_REGISTER(CrossV2);
 
-static const std::initializer_list<op::DataType> AICORE_DTYPE_SUPPORT_LIST = {
-    op::DataType::DT_FLOAT,      op::DataType::DT_FLOAT16,    op::DataType::DT_INT8,
+static const int64_t FORMER_LLENGTH_BOUND = 10240;
+static const int64_t TAIL_LLENGTH_BOUND = 64;
+
+static const std::initializer_list<op::DataType> REGBASE_AICORE_DTYPE_SUPPORT_LIST = {
+    op::DataType::DT_FLOAT,      op::DataType::DT_FLOAT16,    op::DataType::DT_BF16};
+
+static const std::initializer_list<op::DataType> AICORE_DTYPE_SUPPORT_LIST = {	 
+    op::DataType::DT_FLOAT,      op::DataType::DT_FLOAT16,    op::DataType::DT_INT8,	 
     op::DataType::DT_INT16,      op::DataType::DT_INT32,      op::DataType::DT_UINT8};
 
 static const std::initializer_list<op::DataType> V2_AICORE_DTYPE_SUPPORT_LIST = {
@@ -30,14 +37,22 @@ static const std::initializer_list<op::DataType> V2_AICORE_DTYPE_SUPPORT_LIST = 
 // 根据芯片类型、dtype判断算子是否支持走aicore
 inline static bool IsAiCoreSupport(const aclTensor *self)
 {
-    // Cross只需要判断dtype
+    // Cross只需要判断dtype是否支持即可
+    auto curArch = GetCurrentPlatformInfo().GetCurNpuArch();
+    if (IsRegBase(curArch)) {
+        return CheckType(self->GetDataType(), REGBASE_AICORE_DTYPE_SUPPORT_LIST);
+    }
     return CheckType(self->GetDataType(), AICORE_DTYPE_SUPPORT_LIST);
 }
 
 // 根据芯片类型、dtype判断算子是否支持走aicore
 static inline bool IsV2AiCoreSupport(const aclTensor *self) {
+    if (IsRegBase()){
+        return false;
+    }
     // 获取芯片类型
-    if (op::GetCurrentPlatformInfo().GetCurNpuArch() == NpuArch::DAV_2201) {
+    if (op::GetCurrentPlatformInfo().GetCurNpuArch() == NpuArch::DAV_2201 ||
+        op::GetCurrentPlatformInfo().GetCurNpuArch() == NpuArch::DAV_3510) {
         return CheckType(self->GetDataType(), V2_AICORE_DTYPE_SUPPORT_LIST);
     }
     return false;
@@ -85,7 +100,14 @@ inline static const aclTensor *CrossAiCpu(const aclTensor *self, const aclTensor
 
 const aclTensor *Cross(const aclTensor *self, const aclTensor *other, int64_t dim, aclOpExecutor *executor)
 {
-    auto crossOut = executor->AllocTensor(self->GetViewShape(), self->GetDataType(), op::Format::FORMAT_ND);
+    Shape broadcastShape;
+    if (!BroadcastInferShape(self->GetViewShape(), other->GetViewShape(), broadcastShape)) {
+        OP_LOGE(
+            ACLNN_ERR_PARAM_INVALID, "Broadcast %s and %s failed.", op::ToString(self->GetViewShape()).GetString(),
+            op::ToString(other->GetViewShape()).GetString());
+        return nullptr;
+    }
+    auto crossOut = executor->AllocTensor(broadcastShape, self->GetDataType(), op::Format::FORMAT_ND);
     if (IsV2AiCoreSupport(self)) {
         return CrossV2AiCore(self, other, dim, crossOut, executor);
     } else if (IsAiCoreSupport(self)) {
