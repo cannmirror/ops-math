@@ -478,8 +478,8 @@ __aicore__ inline void SplitVUbSplit<T, U, Y>::AllCopyOut(int64_t mOffset, int64
         }
         if (ubOffset + mnAlignSize > ubSizeNum_) {
             // 兜底分支，防止ub写越界
-            curNFactor = curNFactor - (splitEndLine_ - curNOffset_);
             splitEndLine_ = curNOffset_;
+            curNFactor = splitEndLine_ - nOffset - nBlockOffset_;
             break;
         }
         if (curSplitNSizeAlign > maxGatherNum_) {
