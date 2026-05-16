@@ -165,7 +165,7 @@ function(add_opapi_modules)
     target_include_directories(${OPHOST_NAME}_opapi_obj PRIVATE
             ${opapi_ut_depends_inc}
             ${OPAPI_INCLUDE})
-    target_compile_options(${OPHOST_NAME}_opapi_obj PRIVATE -Dgoogle=ascend_private -DACLNN_LOG_FMT_CHECK)
+    target_compile_options(${OPHOST_NAME}_opapi_obj PRIVATE -Dgoogle=ascend_private -DACLNN_LOG_FMT_CHECK -DOP_LOG_LIBOPAPI_ONLY)
     target_link_libraries(
       ${OPHOST_NAME}_opapi_obj
       PUBLIC $<BUILD_INTERFACE:$<IF:$<BOOL:${ENABLE_TEST}>,intf_llt_pub_asan_cxx17,intf_pub_cxx17>>
