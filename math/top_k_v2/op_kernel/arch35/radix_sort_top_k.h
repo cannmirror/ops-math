@@ -658,7 +658,7 @@ __aicore__ inline void RadixSortTopK<T, UNSIGNED_TYPE, NUM_PASS, IS_LARGEST, IS_
     }
     PipeBarrier<PIPE_ALL>();
     SyncAll();
-    if (inBlockDimRange_) {
+    if (inBlockDimRange_ && unsortedDimIndex < unsortedDimNum_) {
         if (IS_SORT && (startTileId == 0) && !needSortWithIndex_) { 
             if (NUM_PASS != topkV2::B64_BITE_SIZE) { 
                SortTopKRes(xLocal); 
